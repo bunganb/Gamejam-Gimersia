@@ -1,27 +1,25 @@
 # =======================================
-# Unity Git Ignore (Safe for GitHub)
+# Unity .gitignore (Aman untuk Kolaborasi)
 # =======================================
 
-# OS generated files
+# OS generated
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Unity generated files (cache, build, etc.)
+# Unity generated folders (cache, auto-regenerate)
 Library/
 Temp/
-Build/
-Builds/
+Obj/
 Logs/
 MemoryCaptures/
-Obj/
-UserSettings/
-MemoryCaptures/
 Artifacts/
-Packages/
 
-# Package cache (besar, bisa regenerate)
-PackageCache/
+# Builds
+Build/
+Builds/
+*.apk
+*.aab
 
 # Asset Store tools
 Assets/AssetStoreTools*
@@ -34,7 +32,10 @@ StreamingAssets/aa.meta
 StreamingAssets/aa/*
 StreamingAssets/aa*/*
 
-# IDE files
+# Ignore only package cache (aman)
+PackageCache/
+
+# IDE generated
 .vscode/
 .vs/
 .idea/
@@ -56,22 +57,13 @@ StreamingAssets/aa*/*
 # Crash/error reports
 sysinfo.txt
 
-# Builds
-*.apk
-*.aab
-*.xcodeproj
-*.xcworkspace
-*.xcuserdata
-*.xcuserstate
-
-# Node / package manager cache
-package-lock.json
-Packages/manifest-temp.json
-
-# =======================================
-# Keep These (DO NOT IGNORE)
-# =======================================
+# ProjectSettings / Packages that MUST be kept
 !Assets/
 !ProjectSettings/
+!Packages/
 !Packages/manifest.json
 !Packages/packages-lock.json
+
+# Node / package managers
+package-lock.json
+Packages/manifest-temp.json
