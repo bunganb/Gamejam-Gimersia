@@ -1,0 +1,77 @@
+# =======================================
+# Unity Git Ignore (Safe for GitHub)
+# =======================================
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Unity generated files (cache, build, etc.)
+Library/
+Temp/
+Build/
+Builds/
+Logs/
+MemoryCaptures/
+Obj/
+UserSettings/
+MemoryCaptures/
+Artifacts/
+Packages/
+
+# Package cache (besar, bisa regenerate)
+PackageCache/
+
+# Asset Store tools
+Assets/AssetStoreTools*
+*.unitypackage
+
+# Addressables & StreamingAssets cache
+/Addressable[Aa]ssets[Dd]ata*/
+AssetBundles/
+StreamingAssets/aa.meta
+StreamingAssets/aa/*
+StreamingAssets/aa*/*
+
+# IDE files
+.vscode/
+.vs/
+.idea/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Crash/error reports
+sysinfo.txt
+
+# Builds
+*.apk
+*.aab
+*.xcodeproj
+*.xcworkspace
+*.xcuserdata
+*.xcuserstate
+
+# Node / package manager cache
+package-lock.json
+Packages/manifest-temp.json
+
+# =======================================
+# Keep These (DO NOT IGNORE)
+# =======================================
+!Assets/
+!ProjectSettings/
+!Packages/manifest.json
+!Packages/packages-lock.json
