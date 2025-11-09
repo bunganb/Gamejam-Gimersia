@@ -2,17 +2,17 @@ using UnityEngine;
 
 public class Food : MonoBehaviour
 {
-    public int points = 1;
+    public int points = 10;
 
-    private void OnTriggerEnter2D(Collider2D collision)
+    protected virtual void Eat()
     {
-        // Jika domba menyentuh food
-        if (collision.CompareTag("Sheep"))
-        {
-            GameManager gm = FindAnyObjectByType<GameManager>();
-            gm.FoodEaten(this);
+        GameManager.Instance.FoodEaten(this);
+    }
 
-            gameObject.SetActive(false); // Nonaktifkan food
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if (other.gameObject.layer == LayerMask.NameToLayer("Sheep")) {
+            Eat();
         }
     }
 }

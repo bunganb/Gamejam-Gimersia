@@ -3,6 +3,7 @@ using UnityEngine;
 
 public class GameManager : MonoBehaviour
 {
+    public static GameManager Instance { get; private set; }
     public Sheep[] sheep;
     public Wolf wolf;
     public Transform foods;
@@ -64,8 +65,15 @@ public class GameManager : MonoBehaviour
     }
     public void FoodEaten(Food food)
     {
-        score += food.points;
-        CheckWinCondition();
+        food.gameObject.SetActive(false);
+
+        SetScore(score + food.points);
+
+        if (!HasRemainingPellets())
+        {
+            wolf.gameObject.SetActive(false);
+            Invoke(nameof(NewRound), 3f);
+        }
     }
 
     void CheckWinCondition()
@@ -84,6 +92,17 @@ public class GameManager : MonoBehaviour
     void SheepWin()
     {
         Debug.Log("Sheep win!");
+    }
+    private bool HasRemainingPellets()
+    {
+        foreach (Transform food in foods)
+        {
+            if (food.gameObject.activeSelf) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }
