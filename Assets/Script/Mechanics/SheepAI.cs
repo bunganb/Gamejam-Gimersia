@@ -34,9 +34,10 @@ public class SheepAI : MonoBehaviour
     private Vector3 lastNodePosition;
     private const float NEW_NODE_THRESHOLD = 0.8f;
     private bool isFirstDecision = true;
-    private Dictionary<Node, Vector2> lastChosenDirection = new Dictionary<Node, Vector2>();
-    private const float HISTORY_PENALTY = 0.8f;
-
+    
+    // Track recent nodes to prevent immediate ping-pong
+    private Queue<Vector3> recentNodes = new Queue<Vector3>();
+    private const int MAX_RECENT_NODES = 3;
     
     private void Awake()
     {
@@ -76,7 +77,6 @@ public class SheepAI : MonoBehaviour
         if (showDebugLogs)
             Debug.Log($"{gameObject.name} Initial direction: {currentDirection}");
         
-        // Set lastNodePosition far away
         lastNodePosition = transform.position + new Vector3(999f, 999f, 0f);
         
         // Find initial food
@@ -132,16 +132,18 @@ public class SheepAI : MonoBehaviour
         panicTimer = panicDuration;
         movement.speedMultiplier = panicSpeed;
         
+        // Clear recent nodes when panicking (can revisit when escaping)
+        recentNodes.Clear();
+        
         if (showDebugLogs)
             Debug.Log($"{gameObject.name} is PANICKING!");
         
-        // IMMEDIATELY change direction away from wolf!
+        // IMMEDIATELY change direction away from wolf
         if (wolfTransform != null)
         {
             Vector2 fleeDirection = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
             Vector2 bestFleeDir = GetBestCardinalDirection(fleeDirection);
             
-            // Check if this direction is not blocked
             if (!movement.Occupied(bestFleeDir))
             {
                 movement.SetDirection(bestFleeDir);
@@ -152,7 +154,7 @@ public class SheepAI : MonoBehaviour
             }
             else
             {
-                // If best direction is blocked, try other directions
+                // Try alternative directions
                 Vector2[] alternatives = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
                 float bestScore = float.MinValue;
                 Vector2 bestAvailable = currentDirection;
@@ -218,26 +220,21 @@ public class SheepAI : MonoBehaviour
                 Node node = GetCurrentNode();
                 if (node != null && node.availableDirections.Count > 0)
                 {
-                    Vector2 newDirection = Vector2.zero;
-                    
-                    if (targetFood != null)
-                    {
-                        newDirection = ChooseBestDirectionNoBacktrack(node, targetFood.position);
-                    }
-                    else
-                    {
-                        newDirection = ChooseRandomDirectionNoBacktrack(node);
-                    }
+                    Vector2 newDirection = ChooseBestDirectionToFood(node);
                     
                     if (newDirection != Vector2.zero)
                     {
                         movement.SetDirection(newDirection);
                         currentDirection = newDirection;
+                        
+                        // Add this node to recent nodes history
+                        AddRecentNode(transform.position);
+                        
                         lastNodePosition = transform.position;
                         isFirstDecision = false;
                         
                         if (showDebugLogs)
-                            Debug.Log($"{gameObject.name} chose: {newDirection}");
+                            Debug.Log($"{gameObject.name} chose: {newDirection}, recent nodes: {recentNodes.Count}");
                     }
                 }
             }
@@ -246,7 +243,7 @@ public class SheepAI : MonoBehaviour
     
     private void PanicBehavior()
     {
-        // Continue adjusting direction at nodes
+        // When panicking, CAN go backward to escape!
         if (IsAtNode() && wolfTransform != null)
         {
             float distanceFromLastNode = Vector3.Distance(transform.position, lastNodePosition);
@@ -273,60 +270,100 @@ public class SheepAI : MonoBehaviour
         }
     }
     
-    private Vector2 ChooseBestDirectionNoBacktrack(Node node, Vector3 targetPosition)
+    private void AddRecentNode(Vector3 nodePosition)
     {
+        recentNodes.Enqueue(nodePosition);
+        
+        // Keep only last N nodes
+        while (recentNodes.Count > MAX_RECENT_NODES)
+        {
+            recentNodes.Dequeue();
+        }
+    }
+    
+    private bool IsRecentNode(Vector3 position)
+    {
+        foreach (Vector3 recentNode in recentNodes)
+        {
+            if (Vector3.Distance(position, recentNode) < 0.5f)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    private Vector2 ChooseBestDirectionToFood(Node node)
+    {
+        // Get forward directions (NO BACKWARD in eating state)
         List<Vector2> forwardDirections = GetForwardDirections(node);
-
+        
+        // If no forward directions (dead end), allow any direction
         if (forwardDirections.Count == 0)
+        {
+            if (showDebugLogs)
+                Debug.Log($"{gameObject.name} DEAD END - turning around");
+            
+            // Clear recent nodes at dead end
+            recentNodes.Clear();
             return node.availableDirections[Random.Range(0, node.availableDirections.Count)];
-
+        }
+        
+        // Score each forward direction
         Vector2 bestDirection = forwardDirections[0];
         float bestScore = float.MinValue;
-        Vector2 toTarget = ((Vector2)targetPosition - (Vector2)transform.position).normalized;
-
+        
         foreach (Vector2 direction in forwardDirections)
         {
-            float score = Vector2.Dot(direction, toTarget);
-
-            // History penalty
-            if (lastChosenDirection.ContainsKey(node) && lastChosenDirection[node] == direction)
+            float score = 0f;
+            
+            // Check where this direction would lead
+            Vector3 potentialPosition = node.transform.position + (Vector3)(direction * 2f);
+            
+            // HUGE penalty for directions leading to recent nodes
+            if (IsRecentNode(potentialPosition))
             {
-                score -= HISTORY_PENALTY;
+                score -= 100f; // Massive penalty to prevent ping-pong
+                if (showDebugLogs)
+                    Debug.Log($"  {direction}: RECENT NODE PENALTY!");
             }
-
-            // Wolf penalty
-            float penalty = WolfPenalty(direction) * 1.2f;
-            score -= penalty;
-
-            // Food bonus
-            score += FoodBonus(direction, node); // tambah prioritas jalur menuju food
-
+            
+            // Factor 1: Food bonus (HIGHEST PRIORITY - look for food in this direction)
+            score += FoodBonus(direction, node.transform.position) * 10.0f;
+            
+            // Factor 2: Target food alignment (if we have a target) - ALSO HIGH PRIORITY
+            if (targetFood != null)
+            {
+                Vector2 toTarget = ((Vector2)targetFood.position - (Vector2)node.transform.position).normalized;
+                float alignment = Vector2.Dot(direction, toTarget);
+                score += alignment * 5.0f;
+            }
+            
+            // Factor 3: Avoid wolf direction (small penalty)
+            score -= WolfPenalty(direction) * 0.5f;
+            
+            // Factor 4: Small bonus for continuing straight (smooth movement)
+            if (direction == currentDirection)
+            {
+                score += 0.3f;
+            }
+            
+            if (showDebugLogs)
+                Debug.Log($"  {direction}: score = {score:F2}");
+            
             if (score > bestScore)
             {
                 bestScore = score;
                 bestDirection = direction;
             }
         }
-
-        lastChosenDirection[node] = bestDirection;
-
+        
         return bestDirection;
-    }
-    
-    private Vector2 ChooseRandomDirectionNoBacktrack(Node node)
-    {
-        List<Vector2> forwardDirections = GetForwardDirections(node);
-        
-        if (forwardDirections.Count == 0)
-        {
-            return node.availableDirections[Random.Range(0, node.availableDirections.Count)];
-        }
-        
-        return forwardDirections[Random.Range(0, forwardDirections.Count)];
     }
     
     private List<Vector2> GetForwardDirections(Node node)
     {
+        // In eating state: BLOCK BACKWARD
         List<Vector2> forwardDirections = new List<Vector2>();
         Vector2 backward = -currentDirection;
         
@@ -343,36 +380,77 @@ public class SheepAI : MonoBehaviour
     
     private Vector2 ChooseFleeDirection(Node node, Vector2 fleeDirection)
     {
+        // In panic state: CAN go any direction (including backward)
         Vector2 bestDirection = node.availableDirections[0];
         float bestScore = float.MinValue;
-
+        
         foreach (Vector2 direction in node.availableDirections)
         {
+            // Score based on how well it points away from wolf
             float score = Vector2.Dot(direction, fleeDirection);
-
-            // Penalti besar jika arah sama seperti terakhir di node ini
-            if (lastChosenDirection.ContainsKey(node) && lastChosenDirection[node] == direction)
-                score -= HISTORY_PENALTY;
-
-            // Penalti jika mengarah ke wolf
-            float penalty = WolfPenalty(direction) * 2.0f;
-            score -= penalty;
-
+            
+            // Big penalty if going toward wolf
+            score -= WolfPenalty(direction) * 3.0f;
+            
             if (score > bestScore)
             {
                 bestScore = score;
                 bestDirection = direction;
             }
         }
-
-        lastChosenDirection[node] = bestDirection;
-
+        
         return bestDirection;
+    }
+    
+    private float FoodBonus(Vector2 direction, Vector3 fromPosition)
+    {
+        if (GameManager.Instance == null || GameManager.Instance.foods == null)
+            return 0f;
+        
+        float bonus = 0f;
+        
+        // Check food in this direction (within a cone)
+        foreach (Transform food in GameManager.Instance.foods)
+        {
+            if (!food.gameObject.activeSelf) continue;
+            
+            Vector2 toFood = ((Vector2)food.position - (Vector2)fromPosition).normalized;
+            float alignment = Vector2.Dot(direction, toFood);
+            
+            // Only count food that's in this direction (stricter cone)
+            if (alignment > 0.5f) // 60 degree cone (stricter)
+            {
+                float distance = Vector2.Distance(fromPosition, food.position);
+                
+                // Closer food = higher bonus
+                if (distance < foodSearchRadius)
+                {
+                    float distanceBonus = (1f - (distance / foodSearchRadius));
+                    bonus += alignment * distanceBonus;
+                }
+            }
+        }
+        
+        return bonus;
+    }
+    
+    private float WolfPenalty(Vector2 direction)
+    {
+        if (wolfTransform == null) 
+            return 0f;
+        
+        Vector2 toWolf = ((Vector2)wolfTransform.position - (Vector2)transform.position).normalized;
+        float dot = Vector2.Dot(direction, toWolf);
+        
+        // Only penalize if going toward wolf
+        if (dot <= 0f)
+            return 0f;
+        
+        return dot;
     }
     
     private Vector2 GetBestCardinalDirection(Vector2 targetDirection)
     {
-        // Get the cardinal direction (up/down/left/right) closest to target direction
         Vector2[] cardinals = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
         Vector2 best = cardinals[0];
         float bestDot = float.MinValue;
@@ -456,6 +534,16 @@ public class SheepAI : MonoBehaviour
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRange);
         
+        // Draw recent nodes
+        if (recentNodes != null)
+        {
+            foreach (Vector3 recentNode in recentNodes)
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(recentNode, 0.3f);
+            }
+        }
+        
         if (targetFood != null && currentState == SheepState.Eating)
         {
             Gizmos.color = Color.green;
@@ -474,40 +562,5 @@ public class SheepAI : MonoBehaviour
             Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
             Gizmos.DrawRay(transform.position, fleeDir * 2f);
         }
-    }
-    private float FoodBonus(Vector2 direction, Node node)
-    {
-        if (GameManager.Instance == null || GameManager.Instance.foods == null)
-            return 0f;
-
-        float bonus = 0f;
-        foreach (Transform food in GameManager.Instance.foods)
-        {
-            if (!food.gameObject.activeSelf) continue;
-
-            Vector2 toFood = ((Vector2)food.position - (Vector2)node.transform.position).normalized;
-            float dot = Vector2.Dot(direction, toFood);
-
-            // Bonus hanya jika arah mendekati food
-            if (dot > 0f)
-                bonus += dot; // bisa dikalikan faktor misal 1.5f untuk lebih agresif
-        }
-
-        return bonus;
-    }
-
-    private float WolfPenalty(Vector2 direction)
-    {
-        if (wolfTransform == null) 
-            return 0f;
-
-        Vector2 toWolf = ((Vector2)wolfTransform.position - (Vector2)transform.position).normalized;
-    
-        float dot = Vector2.Dot(direction, toWolf);
-
-        if (dot <= 0f)
-            return 0f;
-
-        return dot; 
     }
 }

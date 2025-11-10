@@ -6,7 +6,7 @@ public class Sheep : MonoBehaviour
 {
     public Movement movement { get; private set; }
     public Transform target;
-    public int points = 200;
+    public int points = 10;
 
     private void Awake()
     {
