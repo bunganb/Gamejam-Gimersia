@@ -18,6 +18,8 @@ public class GameManager : MonoBehaviour
     public int score { get; private set; }
     public int lives { get; private set; }
     
+    private bool gameEnded = false;
+    
     // Power-up state
     private Coroutine openMapCoroutine;
     private Coroutine howlOfFearCoroutine;
@@ -55,6 +57,12 @@ public class GameManager : MonoBehaviour
     private void NewGame()
     {
         SetScore(0);
+        gameEnded = false;
+        
+        // Hide UI elements
+        // if (gameOverUI != null) gameOverUI.SetActive(false);
+        // if (winUI != null) winUI.SetActive(false);
+        
         NewRound();
     }
     
@@ -82,6 +90,10 @@ public class GameManager : MonoBehaviour
     
     private void GameOver()
     {
+        if (gameEnded) return;
+        gameEnded = true;
+        
+        // Disable all entities
         for (int i = 0; i < this.sheep.Length; i++)
         {
             this.sheep[i].gameObject.SetActive(false);
@@ -91,6 +103,14 @@ public class GameManager : MonoBehaviour
         {
             this.wolf.gameObject.SetActive(false);
         }
+        
+        // Show Game Over UI
+        // if (gameOverUI != null)
+        // {
+        //     gameOverUI.SetActive(true);
+        // }
+        
+        Debug.Log("<color=red>GAME OVER! No food left - Wolf wins!</color>");
     }
     
     private void SetScore(int score)
@@ -104,28 +124,29 @@ public class GameManager : MonoBehaviour
         
         if (!HasRemainingFoods())
         {
-            if (wolf != null)
-            {
-                wolf.gameObject.SetActive(false);
-            }
-            Invoke(nameof(NewRound), 3f);
+            // NO FOOD LEFT - PLAYER LOSES (Wolf wins)
+            GameOver();
         }
     }
     
-    void CheckWinCondition()
+    void Win()
     {
-        int activeFoods = 0;
-        foreach (Transform f in foods)
+        if (gameEnded) return;
+        gameEnded = true;
+        
+        // Disable wolf
+        if (this.wolf != null)
         {
-            if (f.gameObject.activeSelf)
-                activeFoods++;
+            this.wolf.gameObject.SetActive(false);
         }
-        if (activeFoods == 0) SheepWin();
-    }
-    
-    void SheepWin()
-    {
-        Debug.Log("Sheep win!");
+        
+        // Show Win UI
+        // if (winUI != null)
+        // {
+        //     winUI.SetActive(true);
+        // }
+        
+        Debug.Log("<color=green>PLAYER WINS! All sheep have been eaten!</color>");
     }
     
     private bool HasRemainingFoods()
@@ -139,16 +160,39 @@ public class GameManager : MonoBehaviour
         }
         return false;
     }
+
     
     public void SheepEaten(Sheep sheep)
     {
         int points = sheep.points * sheepMultiplier;
         SetScore(score + points);
         Debug.Log($"<color=red>Sheep eaten! +{points} points. Total: {score}</color>");
+        
+        // Check if all sheep have been eaten
+        CheckWinCondition();
+    }
+    
+    void CheckWinCondition()
+    {
+        int activeSheep = 0;
+        foreach (Sheep s in sheep)
+        {
+            if (s.gameObject.activeSelf)
+            {
+                activeSheep++;
+            }
+        }
+        
+        // All sheep eaten - PLAYER WINS
+        if (activeSheep == 0)
+        {
+            Win();
+        }
     }
 
     public void ActivateOpenMap(float duration, float targetIntensity, float targetSmoothness)
     {
+        // Stop previous Open Map effect if active
         if (openMapCoroutine != null)
         {
             StopCoroutine(openMapCoroutine);
