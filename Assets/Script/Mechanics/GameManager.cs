@@ -146,15 +146,9 @@ public class GameManager : MonoBehaviour
         SetScore(score + points);
         Debug.Log($"<color=red>Sheep eaten! +{points} points. Total: {score}</color>");
     }
-    
-    // ===== POWER-UP ACTIVATION METHODS =====
-    
-    /// <summary>
-    /// Activates the Open Map power-up: reduces vignette to reveal the map
-    /// </summary>
+
     public void ActivateOpenMap(float duration, float targetIntensity, float targetSmoothness)
     {
-        // Stop previous Open Map effect if active
         if (openMapCoroutine != null)
         {
             StopCoroutine(openMapCoroutine);
@@ -171,22 +165,24 @@ public class GameManager : MonoBehaviour
             yield break;
         }
         
-        // Smoothly transition to open map state
-        float elapsed = 0f;
-        float transitionSpeed = 2f;
+        float stepSize = 0.1f; // Decrease by 0.1 each step
+        float stepDelay = 0.05f; // Time between each step (20 steps per second)
         
-        while (elapsed < 1f / transitionSpeed)
+        // Gradually decrease intensity
+        while (vignette.intensity.value > targetIntensity)
         {
-            elapsed += Time.deltaTime;
-            float t = elapsed * transitionSpeed;
-            
-            vignette.intensity.value = Mathf.Lerp(vignette.intensity.value, targetIntensity, t);
-            vignette.smoothness.value = Mathf.Lerp(vignette.smoothness.value, targetSmoothness, t);
-            
-            yield return null;
+            vignette.intensity.value = Mathf.Max(vignette.intensity.value - stepSize, targetIntensity);
+            yield return new WaitForSeconds(stepDelay);
         }
         
-        // Ensure values are set
+        // Gradually decrease smoothness
+        while (vignette.smoothness.value > targetSmoothness)
+        {
+            vignette.smoothness.value = Mathf.Max(vignette.smoothness.value - stepSize, targetSmoothness);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        
+        // Ensure values are set to target
         vignette.intensity.value = targetIntensity;
         vignette.smoothness.value = targetSmoothness;
         
@@ -195,17 +191,18 @@ public class GameManager : MonoBehaviour
         // Wait for duration
         yield return new WaitForSeconds(duration);
         
-        // Smoothly transition back to original state
-        elapsed = 0f;
-        while (elapsed < 1f / transitionSpeed)
+        // Gradually increase intensity back to original
+        while (vignette.intensity.value < originalVignetteIntensity)
         {
-            elapsed += Time.deltaTime;
-            float t = elapsed * transitionSpeed;
-            
-            vignette.intensity.value = Mathf.Lerp(vignette.intensity.value, originalVignetteIntensity, t);
-            vignette.smoothness.value = Mathf.Lerp(vignette.smoothness.value, originalVignetteSmoothness, t);
-            
-            yield return null;
+            vignette.intensity.value = Mathf.Min(vignette.intensity.value + stepSize, originalVignetteIntensity);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        
+        // Gradually increase smoothness back to original
+        while (vignette.smoothness.value < originalVignetteSmoothness)
+        {
+            vignette.smoothness.value = Mathf.Min(vignette.smoothness.value + stepSize, originalVignetteSmoothness);
+            yield return new WaitForSeconds(stepDelay);
         }
         
         // Restore original values
@@ -216,10 +213,7 @@ public class GameManager : MonoBehaviour
         
         openMapCoroutine = null;
     }
-    
-    /// <summary>
-    /// Activates the Howl of Fear power-up: slows down all sheep
-    /// </summary>
+
     public void ActivateHowlOfFear(float duration, float speedMultiplier)
     {
         // Stop previous Howl of Fear effect if active
