@@ -4,14 +4,24 @@ public class Food : MonoBehaviour
 {
     public int points = 10;
 
-    protected virtual void Eat()
+    private void Start()
     {
-        GameManager.Instance.FoodEaten(this);
+        Collider2D collider = GetComponent<Collider2D>();
+    }
+
+    public virtual void Eat()
+    {
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.FoodEaten(this);
+        }
+
     }
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (other.gameObject.layer == LayerMask.NameToLayer("Sheep")) {
+        if (other.gameObject.layer == LayerMask.NameToLayer("Sheep"))
+        {
             Eat();
         }
     }
