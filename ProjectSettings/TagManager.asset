@@ -41,6 +41,12 @@ TagManager:
   - name: Default
     uniqueID: 0
     locked: 0
+  - name: Wolf
+    uniqueID: 1380710935
+    locked: 0
+  - name: Sheep
+    uniqueID: 1388998915
+    locked: 0
   - name: Food
     uniqueID: 1739912037
     locked: 0

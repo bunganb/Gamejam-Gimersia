@@ -493,6 +493,14 @@ PrefabInstance:
       propertyPath: m_Name
       value: Sheep
       objectReference: {fileID: 0}
+    - target: {fileID: 6914294562808915820, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
+      propertyPath: m_SortingLayer
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 6914294562808915820, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
+      propertyPath: m_SortingLayerID
+      value: 1388998915
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -943,9 +951,9 @@ TilemapRenderer:
   m_AutoUVMaxDistance: 0.5
   m_AutoUVMaxAngle: 89
   m_LightmapParameters: {fileID: 0}
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
+  m_SortingLayerID: 1739912037
+  m_SortingLayer: 3
+  m_SortingOrder: -1
   m_ChunkSize: {x: 32, y: 32, z: 32}
   m_ChunkCullingBounds: {x: 0, y: 0, z: 0}
   m_MaxChunkCount: 16
@@ -2087,8 +2095,8 @@ SpriteRenderer:
   m_AutoUVMaxDistance: 0.5
   m_AutoUVMaxAngle: 89
   m_LightmapParameters: {fileID: 0}
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
+  m_SortingLayerID: 1380710935
+  m_SortingLayer: 1
   m_SortingOrder: 0
   m_Sprite: {fileID: -2413806693520163455, guid: f6e52d77693df5d43b6992b1dc70c9d4, type: 3}
   m_Color: {r: 1, g: 0, b: 0, a: 1}
@@ -2478,6 +2486,14 @@ PrefabInstance:
     - target: {fileID: 1667204101630744265, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
       propertyPath: m_Name
       value: Sheep
+      objectReference: {fileID: 0}
+    - target: {fileID: 6914294562808915820, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
+      propertyPath: m_SortingLayer
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 6914294562808915820, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
+      propertyPath: m_SortingLayerID
+      value: 1388998915
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -5136,6 +5152,14 @@ PrefabInstance:
       propertyPath: wolfTransform
       value: 
       objectReference: {fileID: 1193549571}
+    - target: {fileID: 6914294562808915820, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
+      propertyPath: m_SortingLayer
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 6914294562808915820, guid: 97d28053788bece4da4b8e0bd66b73cd, type: 3}
+      propertyPath: m_SortingLayerID
+      value: 1388998915
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
