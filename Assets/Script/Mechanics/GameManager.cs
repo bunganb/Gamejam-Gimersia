@@ -7,12 +7,15 @@ public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
     
-    public Sheep[] sheep;
     public Wolf wolf;
     public Transform foods;
     
     [Header("Visual Effects")]
     public Volume globalVolume;
+    
+    [Header("UI References")]
+    public GameObject gameOverUI;
+    public GameObject winUI;
     
     private int sheepMultiplier = 1;
     public int score { get; private set; }
@@ -60,8 +63,8 @@ public class GameManager : MonoBehaviour
         gameEnded = false;
         
         // Hide UI elements
-        // if (gameOverUI != null) gameOverUI.SetActive(false);
-        // if (winUI != null) winUI.SetActive(false);
+        if (gameOverUI != null) gameOverUI.SetActive(false);
+        if (winUI != null) winUI.SetActive(false);
         
         NewRound();
     }
@@ -77,9 +80,11 @@ public class GameManager : MonoBehaviour
     
     private void ResetState()
     {
-        for (int i = 0; i < this.sheep.Length; i++)
+        // Find and activate all sheep
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        foreach (Sheep sheep in allSheep)
         {
-            this.sheep[i].gameObject.SetActive(true);
+            sheep.gameObject.SetActive(true);
         }
         
         if (this.wolf != null)
@@ -93,10 +98,11 @@ public class GameManager : MonoBehaviour
         if (gameEnded) return;
         gameEnded = true;
         
-        // Disable all entities
-        for (int i = 0; i < this.sheep.Length; i++)
+        // Disable all sheep
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        foreach (Sheep sheep in allSheep)
         {
-            this.sheep[i].gameObject.SetActive(false);
+            sheep.gameObject.SetActive(false);
         }
         
         if (this.wolf != null)
@@ -105,10 +111,10 @@ public class GameManager : MonoBehaviour
         }
         
         // Show Game Over UI
-        // if (gameOverUI != null)
-        // {
-        //     gameOverUI.SetActive(true);
-        // }
+        if (gameOverUI != null)
+        {
+            gameOverUI.SetActive(true);
+        }
         
         Debug.Log("<color=red>GAME OVER! No food left - Wolf wins!</color>");
     }
@@ -124,7 +130,6 @@ public class GameManager : MonoBehaviour
         
         if (!HasRemainingFoods())
         {
-            // NO FOOD LEFT - PLAYER LOSES (Wolf wins)
             GameOver();
         }
     }
@@ -141,10 +146,10 @@ public class GameManager : MonoBehaviour
         }
         
         // Show Win UI
-        // if (winUI != null)
-        // {
-        //     winUI.SetActive(true);
-        // }
+        if (winUI != null)
+        {
+            winUI.SetActive(true);
+        }
         
         Debug.Log("<color=green>PLAYER WINS! All sheep have been eaten!</color>");
     }
@@ -161,27 +166,31 @@ public class GameManager : MonoBehaviour
         return false;
     }
 
-    
     public void SheepEaten(Sheep sheep)
     {
         int points = sheep.points * sheepMultiplier;
         SetScore(score + points);
         Debug.Log($"<color=red>Sheep eaten! +{points} points. Total: {score}</color>");
         
-        // Check if all sheep have been eaten
-        CheckWinCondition();
+        // Check if all sheep have been eaten (with small delay to ensure this sheep is deactivated first)
+        Invoke(nameof(CheckWinCondition), 0.1f);
     }
     
     void CheckWinCondition()
     {
+        // Find all sheep in the scene dynamically
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        
         int activeSheep = 0;
-        foreach (Sheep s in sheep)
+        foreach (Sheep s in allSheep)
         {
             if (s.gameObject.activeSelf)
             {
                 activeSheep++;
             }
         }
+        
+        Debug.Log($"Active sheep remaining: {activeSheep}");
         
         // All sheep eaten - PLAYER WINS
         if (activeSheep == 0)
@@ -257,7 +266,10 @@ public class GameManager : MonoBehaviour
         
         openMapCoroutine = null;
     }
-
+    
+    /// <summary>
+    /// Activates the Howl of Fear power-up: slows down all sheep
+    /// </summary>
     public void ActivateHowlOfFear(float duration, float speedMultiplier)
     {
         // Stop previous Howl of Fear effect if active
@@ -271,24 +283,27 @@ public class GameManager : MonoBehaviour
     
     private IEnumerator HowlOfFearEffect(float duration, float speedMultiplier)
     {
-        // Store original speeds
-        float[] originalSpeeds = new float[sheep.Length];
+        // Find all sheep dynamically
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        
+        // Store original speeds with dictionary to track each sheep
+        System.Collections.Generic.Dictionary<Sheep, float> originalSpeeds = new System.Collections.Generic.Dictionary<Sheep, float>();
         
         // Apply fear effect to all sheep
-        for (int i = 0; i < sheep.Length; i++)
+        foreach (Sheep sheep in allSheep)
         {
-            if (sheep[i] != null && sheep[i].gameObject.activeSelf)
+            if (sheep != null && sheep.gameObject.activeSelf)
             {
-                SheepAI sheepAI = sheep[i].GetComponent<SheepAI>();
+                SheepAI sheepAI = sheep.GetComponent<SheepAI>();
                 if (sheepAI != null)
                 {
-                    originalSpeeds[i] = sheepAI.normalSpeed;
+                    originalSpeeds[sheep] = sheepAI.normalSpeed;
                     sheepAI.normalSpeed *= speedMultiplier;
                     
                     // Update movement speed if in eating state
-                    if (sheep[i].movement != null)
+                    if (sheep.movement != null)
                     {
-                        sheep[i].movement.speedMultiplier *= speedMultiplier;
+                        sheep.movement.speedMultiplier *= speedMultiplier;
                     }
                 }
             }
@@ -300,19 +315,22 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(duration);
         
         // Restore original speeds
-        for (int i = 0; i < sheep.Length; i++)
+        foreach (var pair in originalSpeeds)
         {
-            if (sheep[i] != null)
+            Sheep sheep = pair.Key;
+            float originalSpeed = pair.Value;
+            
+            if (sheep != null)
             {
-                SheepAI sheepAI = sheep[i].GetComponent<SheepAI>();
+                SheepAI sheepAI = sheep.GetComponent<SheepAI>();
                 if (sheepAI != null)
                 {
-                    sheepAI.normalSpeed = originalSpeeds[i];
+                    sheepAI.normalSpeed = originalSpeed;
                     
                     // Restore movement speed if in eating state
-                    if (sheep[i].movement != null && sheep[i].gameObject.activeSelf)
+                    if (sheep.movement != null && sheep.gameObject.activeSelf)
                     {
-                        sheep[i].movement.speedMultiplier = originalSpeeds[i];
+                        sheep.movement.speedMultiplier = originalSpeed;
                     }
                 }
             }
