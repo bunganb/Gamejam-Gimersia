@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 11a2a28f4eca4f84989b7a298ef1a41a
+guid: c0446386e10847b439cfdfdd5d9a5547
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -6767636680347944327
-    second: map_dummy_0
+      213: -746600982717785545
+    second: down_00003_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -51,7 +51,7 @@ TextureImporter:
   spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
-  spritePixelsToUnits: 100
+  spritePixelsToUnits: 1680
   spriteBorder: {x: 0, y: 0, z: 0, w: 0}
   spriteGenerateFallbackPhysicsShape: 1
   alphaUsage: 1
@@ -135,30 +135,17 @@ TextureImporter:
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
-  - serializedVersion: 4
-    buildTarget: WindowsStoreApps
-    maxTextureSize: 2048
-    resizeAlgorithm: 0
-    textureFormat: -1
-    textureCompression: 1
-    compressionQuality: 50
-    crunchedCompression: 0
-    allowsAlphaSplitting: 0
-    overridden: 0
-    ignorePlatformSupport: 0
-    androidETC2FallbackOverride: 0
-    forceMaximumCompressionQuality_BC6H_BC7: 0
   spriteSheet:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: map_dummy_0
+      name: down_00003_0
       rect:
         serializedVersion: 2
-        x: 0
-        y: 0
-        width: 741
-        height: 750
+        x: 51
+        y: 36
+        width: 408
+        height: 412
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -167,8 +154,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 97af4f2bb468412a0800000000000000
-      internalID: -6767636680347944327
+      spriteID: 73a1624ac5a83a5f0800000000000000
+      internalID: -746600982717785545
       vertices: []
       indices: 
       edges: []
@@ -187,7 +174,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      map_dummy_0: -6767636680347944327
+      down_00003_0: -746600982717785545
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

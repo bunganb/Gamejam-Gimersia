@@ -1,9 +1,343 @@
 using System;
+using System.Collections;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class GameManager : MonoBehaviour
 {
-    public GameObject[] sheep;
-
+    public static GameManager Instance { get; private set; }
     
+    public Wolf wolf;
+    public Transform foods;
+    
+    [Header("Visual Effects")]
+    public Volume globalVolume;
+    
+    [Header("UI References")]
+    public GameObject gameOverUI;
+    public GameObject winUI;
+    
+    private int sheepMultiplier = 1;
+    public int score { get; private set; }
+    public int lives { get; private set; }
+    
+    private bool gameEnded = false;
+    
+    // Power-up state
+    private Coroutine openMapCoroutine;
+    private Coroutine howlOfFearCoroutine;
+    private float originalVignetteIntensity;
+    private float originalVignetteSmoothness;
+    
+    private void Awake()
+    {
+        // Singleton setup
+        if (Instance == null)
+        {
+            Instance = this;
+            Debug.Log("GameManager Instance created!");
+        }
+        else
+        {
+            Destroy(gameObject);
+            return;
+        }
+        
+        // Store original vignette settings
+        if (globalVolume != null && globalVolume.profile.TryGet(out UnityEngine.Rendering.Universal.Vignette vignette))
+        {
+            originalVignetteIntensity = vignette.intensity.value;
+            originalVignetteSmoothness = vignette.smoothness.value;
+            Debug.Log($"Original Vignette - Intensity: {originalVignetteIntensity}, Smoothness: {originalVignetteSmoothness}");
+        }
+    }
+    
+    private void Start()
+    {
+        NewGame();
+    }
+    
+    private void NewGame()
+    {
+        SetScore(0);
+        gameEnded = false;
+        
+        // Hide UI elements
+        if (gameOverUI != null) gameOverUI.SetActive(false);
+        if (winUI != null) winUI.SetActive(false);
+        
+        NewRound();
+    }
+    
+    private void NewRound()
+    {
+        foreach (Transform food in this.foods)
+        {
+            food.gameObject.SetActive(true);
+        }
+        ResetState();
+    }
+    
+    private void ResetState()
+    {
+        // Find and activate all sheep
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        foreach (Sheep sheep in allSheep)
+        {
+            sheep.gameObject.SetActive(true);
+        }
+        
+        if (this.wolf != null)
+        {
+            this.wolf.gameObject.SetActive(true);
+        }
+    }
+    
+    private void GameOver()
+    {
+        if (gameEnded) return;
+        gameEnded = true;
+        
+        // Disable all sheep
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        foreach (Sheep sheep in allSheep)
+        {
+            sheep.gameObject.SetActive(false);
+        }
+        
+        if (this.wolf != null)
+        {
+            this.wolf.gameObject.SetActive(false);
+        }
+        
+        // Show Game Over UI
+        if (gameOverUI != null)
+        {
+            gameOverUI.SetActive(true);
+        }
+        
+        Debug.Log("<color=red>GAME OVER! No food left - Wolf wins!</color>");
+    }
+    
+    private void SetScore(int score)
+    {
+        this.score = score;
+    }
+    
+    public void FoodEaten(Food food)
+    {
+        food.gameObject.SetActive(false);
+        
+        if (!HasRemainingFoods())
+        {
+            GameOver();
+        }
+    }
+    
+    void Win()
+    {
+        if (gameEnded) return;
+        gameEnded = true;
+        
+        // Disable wolf
+        if (this.wolf != null)
+        {
+            this.wolf.gameObject.SetActive(false);
+        }
+        
+        // Show Win UI
+        if (winUI != null)
+        {
+            winUI.SetActive(true);
+        }
+        
+        Debug.Log("<color=green>PLAYER WINS! All sheep have been eaten!</color>");
+    }
+    
+    private bool HasRemainingFoods()
+    {
+        foreach (Transform food in foods)
+        {
+            if (food.gameObject.activeSelf)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void SheepEaten(Sheep sheep)
+    {
+        int points = sheep.points * sheepMultiplier;
+        SetScore(score + points);
+        Debug.Log($"<color=red>Sheep eaten! +{points} points. Total: {score}</color>");
+        
+        // Check if all sheep have been eaten (with small delay to ensure this sheep is deactivated first)
+        Invoke(nameof(CheckWinCondition), 0.1f);
+    }
+    
+    void CheckWinCondition()
+    {
+        // Find all sheep in the scene dynamically
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        
+        int activeSheep = 0;
+        foreach (Sheep s in allSheep)
+        {
+            if (s.gameObject.activeSelf)
+            {
+                activeSheep++;
+            }
+        }
+        
+        Debug.Log($"Active sheep remaining: {activeSheep}");
+        
+        // All sheep eaten - PLAYER WINS
+        if (activeSheep == 0)
+        {
+            Win();
+        }
+    }
+
+    public void ActivateOpenMap(float duration, float targetIntensity, float targetSmoothness)
+    {
+        // Stop previous Open Map effect if active
+        if (openMapCoroutine != null)
+        {
+            StopCoroutine(openMapCoroutine);
+        }
+        
+        openMapCoroutine = StartCoroutine(OpenMapEffect(duration, targetIntensity, targetSmoothness));
+    }
+    
+    private IEnumerator OpenMapEffect(float duration, float targetIntensity, float targetSmoothness)
+    {
+        if (globalVolume == null || !globalVolume.profile.TryGet(out UnityEngine.Rendering.Universal.Vignette vignette))
+        {
+            Debug.LogWarning("Global Volume or Vignette not found!");
+            yield break;
+        }
+        
+        float stepSize = 0.1f; // Decrease by 0.1 each step
+        float stepDelay = 0.05f; // Time between each step (20 steps per second)
+        
+        // Gradually decrease intensity
+        while (vignette.intensity.value > targetIntensity)
+        {
+            vignette.intensity.value = Mathf.Max(vignette.intensity.value - stepSize, targetIntensity);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        
+        // Gradually decrease smoothness
+        while (vignette.smoothness.value > targetSmoothness)
+        {
+            vignette.smoothness.value = Mathf.Max(vignette.smoothness.value - stepSize, targetSmoothness);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        
+        // Ensure values are set to target
+        vignette.intensity.value = targetIntensity;
+        vignette.smoothness.value = targetSmoothness;
+        
+        Debug.Log($"<color=cyan>Map opened! Vignette reduced for {duration} seconds</color>");
+        
+        // Wait for duration
+        yield return new WaitForSeconds(duration);
+        
+        // Gradually increase intensity back to original
+        while (vignette.intensity.value < originalVignetteIntensity)
+        {
+            vignette.intensity.value = Mathf.Min(vignette.intensity.value + stepSize, originalVignetteIntensity);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        
+        // Gradually increase smoothness back to original
+        while (vignette.smoothness.value < originalVignetteSmoothness)
+        {
+            vignette.smoothness.value = Mathf.Min(vignette.smoothness.value + stepSize, originalVignetteSmoothness);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        
+        // Restore original values
+        vignette.intensity.value = originalVignetteIntensity;
+        vignette.smoothness.value = originalVignetteSmoothness;
+        
+        Debug.Log("<color=cyan>Map closed - vignette restored</color>");
+        
+        openMapCoroutine = null;
+    }
+    
+    /// <summary>
+    /// Activates the Howl of Fear power-up: slows down all sheep
+    /// </summary>
+    public void ActivateHowlOfFear(float duration, float speedMultiplier)
+    {
+        // Stop previous Howl of Fear effect if active
+        if (howlOfFearCoroutine != null)
+        {
+            StopCoroutine(howlOfFearCoroutine);
+        }
+        
+        howlOfFearCoroutine = StartCoroutine(HowlOfFearEffect(duration, speedMultiplier));
+    }
+    
+    private IEnumerator HowlOfFearEffect(float duration, float speedMultiplier)
+    {
+        // Find all sheep dynamically
+        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        
+        // Store original speeds with dictionary to track each sheep
+        System.Collections.Generic.Dictionary<Sheep, float> originalSpeeds = new System.Collections.Generic.Dictionary<Sheep, float>();
+        
+        // Apply fear effect to all sheep
+        foreach (Sheep sheep in allSheep)
+        {
+            if (sheep != null && sheep.gameObject.activeSelf)
+            {
+                SheepAI sheepAI = sheep.GetComponent<SheepAI>();
+                if (sheepAI != null)
+                {
+                    originalSpeeds[sheep] = sheepAI.normalSpeed;
+                    sheepAI.normalSpeed *= speedMultiplier;
+                    
+                    // Update movement speed if in eating state
+                    if (sheep.movement != null)
+                    {
+                        sheep.movement.speedMultiplier *= speedMultiplier;
+                    }
+                }
+            }
+        }
+        
+        Debug.Log($"<color=orange>Howl of Fear active! All sheep slowed to {speedMultiplier * 100}% speed</color>");
+        
+        // Wait for duration
+        yield return new WaitForSeconds(duration);
+        
+        // Restore original speeds
+        foreach (var pair in originalSpeeds)
+        {
+            Sheep sheep = pair.Key;
+            float originalSpeed = pair.Value;
+            
+            if (sheep != null)
+            {
+                SheepAI sheepAI = sheep.GetComponent<SheepAI>();
+                if (sheepAI != null)
+                {
+                    sheepAI.normalSpeed = originalSpeed;
+                    
+                    // Restore movement speed if in eating state
+                    if (sheep.movement != null && sheep.gameObject.activeSelf)
+                    {
+                        sheep.movement.speedMultiplier = originalSpeed;
+                    }
+                }
+            }
+        }
+        
+        Debug.Log("<color=orange>Howl of Fear ended - sheep speed restored</color>");
+        
+        howlOfFearCoroutine = null;
+    }
 }
