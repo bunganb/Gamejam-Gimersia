@@ -21,8 +21,13 @@ public class LevelMenu : MonoBehaviour
     }
 
     public void OpenLevel(int levelId)
-    {
+    { 
+        AudioManager.Instance.PlaySFX("Button");
         string levelName = "Level" + levelId;
         SceneManager.LoadScene(levelName);
+    }
+    public void ButtonCliked()
+    {
+        AudioManager.Instance.PlaySFX("Button");
     }
 }
