@@ -1,6 +1,6 @@
 using UnityEngine;
 using TMPro;
-using UnityEngine.Tilemaps;
+using System.Collections.Generic;
 
 public class SheepAppleCounter : MonoBehaviour
 {
@@ -25,8 +25,10 @@ public class SheepAppleCounter : MonoBehaviour
 
     void UpdateCounts(bool forceUpdate)
     {
-        // Hitung jumlah GameObject dengan tag masing-masing
-        int sheepCount = GameObject.FindGameObjectsWithTag("Sheep").Length;
+        // Hitung jumlah Sheep yang MASIH HIDUP (IsDead = false)
+        int sheepCount = CountLivingSheep();
+
+        // Hitung jumlah Apple (tetap sama)
         int appleCount = GameObject.FindGameObjectsWithTag("Apple").Length;
 
         // Update hanya jika jumlah berubah
@@ -41,5 +43,25 @@ public class SheepAppleCounter : MonoBehaviour
             if (appleCountText != null)
                 appleCountText.text = $"{appleCount}";
         }
+    }
+
+    int CountLivingSheep()
+    {
+        int livingSheep = 0;
+
+        // Cari semua GameObject dengan tag "Sheep"
+        GameObject[] allSheep = GameObject.FindGameObjectsWithTag("Sheep");
+
+        foreach (GameObject sheepObj in allSheep)
+        {
+            // Cek komponen Sheep dan status isDead
+            Sheep sheepComponent = sheepObj.GetComponent<Sheep>();
+            if (sheepComponent != null && !sheepComponent.IsDead)
+            {
+                livingSheep++;
+            }
+        }
+
+        return livingSheep;
     }
 }
