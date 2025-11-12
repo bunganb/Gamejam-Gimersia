@@ -22683,7 +22683,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2026550357}
-  - component: {fileID: 2026550358}
   - component: {fileID: 2026550359}
   - component: {fileID: 2026550360}
   m_Layer: 0
@@ -22708,24 +22707,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2026550358
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2026550356}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b63d35df28694ba4ea04e526a10fcdce, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  wolf: {fileID: 1193549575}
-  foods: {fileID: 1035914659}
-  globalVolume: {fileID: 1546500796}
-  gameOverUI: {fileID: 1018819047}
-  winUI: {fileID: 1115475291}
-  NextButton: {fileID: 2076326554}
 --- !u!114 &2026550359
 MonoBehaviour:
   m_ObjectHideFlags: 0
