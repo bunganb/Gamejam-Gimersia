@@ -75,11 +75,12 @@ public class NamedAudioClip
             sfxSource.PlayOneShot(clip);
             Debug.Log("Play SFX: " + name);
 
-            if (name.ToLower() == "Win" || name.ToLower() == "Lose")
+            if (name.ToLower() == "win" || name.ToLower() == "lose")
             {
-                // Duck BGM selama SFX main
-                StartCoroutine(DuckBGMWhileSFX(clip.length, 1.5f));
+                // Matikan BGM sepenuhnya saat SFX Win/Lose dimainkan
+                StartCoroutine(StopBGMForWinLose(clip.length, 1.5f));
             }
+
         }
         else
         {
@@ -179,6 +180,25 @@ public class NamedAudioClip
         }
 
         bgmSource.volume = originalVolume;
+    }
+    private IEnumerator StopBGMForWinLose(float sfxDuration, float fadeDuration)
+    {
+        // Fade out BGM sepenuhnya
+        float startVolume = bgmSource.volume;
+        float currentTime = 0f;
+
+        while (currentTime < fadeDuration)
+        {
+            currentTime += Time.deltaTime;
+            bgmSource.volume = Mathf.Lerp(startVolume, 0f, currentTime / fadeDuration);
+            yield return null;
+        }
+
+        bgmSource.Stop();
+        bgmSource.volume = startVolume;
+
+        // Tunggu sampai SFX selesai (agar tidak langsung restart)
+        yield return new WaitForSeconds(sfxDuration);
     }
 
 }
