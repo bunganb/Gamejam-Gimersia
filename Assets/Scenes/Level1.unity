@@ -22261,7 +22261,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 57a5a388047d69c4ab9962f18bb494f9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  bgmName: Level 1
+  bgmName: GamePlay
 --- !u!1 &2069661526
 GameObject:
   m_ObjectHideFlags: 0
