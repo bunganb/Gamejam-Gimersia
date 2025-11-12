@@ -46,7 +46,6 @@ public class Sheep : MonoBehaviour
         }
         
         Rigidbody2D rb = GetComponent<Rigidbody2D>();
-
     }
 
     public void ResetState()
@@ -101,8 +100,8 @@ public class Sheep : MonoBehaviour
             }
             Die(); 
         }
-
     }
+    
     public void Die()
     {
         if (animator != null)
@@ -116,7 +115,24 @@ public class Sheep : MonoBehaviour
         Collider2D col = GetComponent<Collider2D>();
         if (col != null)
             col.enabled = false;
+        
+        // Play slash sound
         AudioManager.Instance.PlaySFX("Slash");
+    
+        // Trigger UI Slash VFX using Instance
+        if (SlashVFX.Instance != null)
+        {
+            SlashVFX.Instance.PlayEffect();
+        
+            if (showDebugLogs)
+                Debug.Log($"<color=green>Slash VFX triggered for {gameObject.name}!</color>");
+        }
+        else
+        {
+            if (showDebugLogs)
+                Debug.LogWarning("SlashVFX Instance not found in scene!");
+        }
+    
         StartCoroutine(DisableAfterAnimation());
     }
 
@@ -126,7 +142,4 @@ public class Sheep : MonoBehaviour
         yield return new WaitForSeconds(1.5f);
         gameObject.SetActive(false);
     }
-
-
-
 }
