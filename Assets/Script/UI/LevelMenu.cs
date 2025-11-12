@@ -77,4 +77,10 @@ public class LevelMenu : MonoBehaviour
         LoadMainMenu.ResetProgress();
         UpdateUnlockedLevels();
     }
+
+    public void buttonClikedSFX()
+    {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlaySFX("Button");
+    }
 }

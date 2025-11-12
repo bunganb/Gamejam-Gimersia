@@ -116,7 +116,7 @@ public class Sheep : MonoBehaviour
         Collider2D col = GetComponent<Collider2D>();
         if (col != null)
             col.enabled = false;
-
+        AudioManager.Instance.PlaySFX("Slash");
         StartCoroutine(DisableAfterAnimation());
     }
 

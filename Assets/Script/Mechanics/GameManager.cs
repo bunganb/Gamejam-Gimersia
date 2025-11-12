@@ -115,7 +115,7 @@ public class GameManager : MonoBehaviour
         {
             gameOverUI.SetActive(true);
         }
-
+        AudioManager.Instance.PlaySFX("Lose");
         Debug.Log("<color=red>GAME OVER! No food left - Wolf wins!</color>");
     }
 
@@ -149,7 +149,7 @@ public class GameManager : MonoBehaviour
         {
             winUI.SetActive(true);
         }
-
+        AudioManager.Instance.PlaySFX("Win");
         Debug.Log("<color=green>PLAYER WINS! All sheep have been eaten!</color>");
     }
 

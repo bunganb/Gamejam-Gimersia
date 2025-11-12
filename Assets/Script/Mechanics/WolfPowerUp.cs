@@ -29,6 +29,7 @@ public class WolfPowerUp : MonoBehaviour
         {
             ActivatePowerUp();
             gameObject.SetActive(false);
+            AudioManager.Instance?.PlaySFX("Wolf");
         }
     }
 

@@ -131,7 +131,7 @@ public class SheepAI : MonoBehaviour
         currentState = SheepState.Panicking;
         panicTimer = panicDuration;
         movement.speedMultiplier = panicSpeed;
-        
+        AudioManager.Instance.PlaySFX("Sheep Screaming");
         // Clear recent nodes when panicking (can revisit when escaping)
         recentNodes.Clear();
         
