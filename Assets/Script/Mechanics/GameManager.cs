@@ -236,18 +236,19 @@ public class GameManager : MonoBehaviour
     {
         Sheep[] allSheep = FindObjectsOfType<Sheep>();
 
-        int activeSheep = 0;
+        int livingSheep = 0;
         foreach (Sheep s in allSheep)
         {
-            if (s.gameObject.activeSelf)
+            // HANYA hitung Sheep yang BUKAN mati dan masih aktif
+            if (s.gameObject.activeSelf && !s.IsDead)
             {
-                activeSheep++;
+                livingSheep++;
             }
         }
 
-        Debug.Log($"Active sheep remaining: {activeSheep}");
+        Debug.Log($"Living sheep remaining: {livingSheep}");
 
-        if (activeSheep == 0)
+        if (livingSheep == 0)
         {
             Win();
         }

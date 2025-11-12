@@ -9,9 +9,18 @@ public class Sheep : MonoBehaviour
     public Transform target;
     public int points = 10;
     private Animator animator;
-    
+
     [Header("Debug")]
     public bool showDebugLogs = false;
+
+    // Death flag untuk mencegah multiple calls
+    private bool isDead = false;
+
+    // Public property untuk diakses GameManager
+    public bool IsDead
+    {
+        get { return isDead; }
+    }
 
     private void Awake()
     {
@@ -22,36 +31,28 @@ public class Sheep : MonoBehaviour
     private void Start()
     {
         ResetState();
-        
-        // Debug: Check sheep setup
-        Collider2D[] colliders = GetComponents<Collider2D>();
-        
-        bool hasTrigger = false;
-        bool hasNonTrigger = false;
-        
-        foreach (Collider2D col in colliders)
-        {
-            if (col.isTrigger)
-            {
-                hasTrigger = true;
-                if (showDebugLogs)
-                    Debug.Log($"{gameObject.name} has TRIGGER collider: {col.GetType().Name}");
-            }
-            else
-            {
-                hasNonTrigger = true;
-                if (showDebugLogs)
-                    Debug.Log($"{gameObject.name} has NON-TRIGGER collider: {col.GetType().Name}");
-            }
-        }
-        
-        Rigidbody2D rb = GetComponent<Rigidbody2D>();
     }
 
     public void ResetState()
     {
+        isDead = false;
         gameObject.SetActive(true);
         movement.ResetState();
+
+        // Reset animator state
+        if (animator != null)
+        {
+            animator.SetBool("IsDead", false);
+            animator.Rebind();
+        }
+
+        // Aktifkan komponen yang dimatikan di Die()
+        if (movement != null)
+            movement.enabled = true;
+
+        Collider2D col = GetComponent<Collider2D>();
+        if (col != null)
+            col.enabled = true;
     }
 
     public void SetPosition(Vector3 position)
@@ -64,7 +65,10 @@ public class Sheep : MonoBehaviour
     {
         if (showDebugLogs)
             Debug.Log($"{gameObject.name} TRIGGER with {other.gameObject.name} (Layer: {LayerMask.LayerToName(other.gameObject.layer)})");
-        
+
+        // Cek sudah mati atau belum
+        if (isDead) return;
+
         if (other.gameObject.layer == LayerMask.NameToLayer("Food"))
         {
             Food food = other.GetComponent<Food>();
@@ -73,12 +77,14 @@ public class Sheep : MonoBehaviour
                 food.Eat();
             }
         }
-        
+
         if (other.gameObject.layer == LayerMask.NameToLayer("Wolf"))
         {
             if (showDebugLogs)
                 Debug.Log($"<color=red>{gameObject.name} caught by wolf via TRIGGER!</color>");
-    
+
+            isDead = true;
+
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.SheepEaten(this);
@@ -92,18 +98,28 @@ public class Sheep : MonoBehaviour
         if (showDebugLogs)
             Debug.Log($"{gameObject.name} COLLISION with {collision.gameObject.name} (Layer: {LayerMask.LayerToName(collision.gameObject.layer)})");
 
+        if (isDead) return;
+
         if (collision.gameObject.layer == LayerMask.NameToLayer("Wolf"))
         {
+            isDead = true;
+
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.SheepEaten(this);
             }
-            Die(); 
+            Die();
         }
     }
-    
+
     public void Die()
     {
+        // Double check
+        if (isDead == false)
+        {
+            isDead = true;
+        }
+
         if (animator != null)
         {
             animator.SetBool("IsDead", true);
@@ -115,24 +131,16 @@ public class Sheep : MonoBehaviour
         Collider2D col = GetComponent<Collider2D>();
         if (col != null)
             col.enabled = false;
-        
+
         // Play slash sound
         AudioManager.Instance.PlaySFX("Slash");
-    
-        // Trigger UI Slash VFX using Instance
+
+        // Trigger UI Slash VFX
         if (SlashVFX.Instance != null)
         {
             SlashVFX.Instance.PlayEffect();
-        
-            if (showDebugLogs)
-                Debug.Log($"<color=green>Slash VFX triggered for {gameObject.name}!</color>");
         }
-        else
-        {
-            if (showDebugLogs)
-                Debug.LogWarning("SlashVFX Instance not found in scene!");
-        }
-    
+
         StartCoroutine(DisableAfterAnimation());
     }
 
@@ -140,6 +148,11 @@ public class Sheep : MonoBehaviour
     {
         yield return null;
         yield return new WaitForSeconds(1.5f);
-        gameObject.SetActive(false);
+
+        // Pastikan masih dalam state mati sebelum disable
+        if (isDead && gameObject.activeInHierarchy)
+        {
+            gameObject.SetActive(false);
+        }
     }
 }
