@@ -49,9 +49,9 @@ public class WolfPowerUp : MonoBehaviour
                     break;
             }
 
-            // Aktifkan slider di UI Manager
+            // Aktifkan UI dengan jenis power-up
             if (PowerUpUIManager.Instance != null)
-                PowerUpUIManager.Instance.ShowPowerUpDuration(duration);
+                PowerUpUIManager.Instance.ShowPowerUpDuration(duration, powerUpType);
         }
     }
 }
