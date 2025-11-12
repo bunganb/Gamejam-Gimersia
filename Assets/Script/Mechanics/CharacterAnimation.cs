@@ -1,7 +1,5 @@
 using UnityEngine;
 
-[RequireComponent(typeof(Animator))]
-[RequireComponent(typeof(Movement))]
 public class CharacterAnimation : MonoBehaviour
 {
     private Animator animator;
@@ -10,23 +8,16 @@ public class CharacterAnimation : MonoBehaviour
     private void Awake()
     {
         animator = GetComponent<Animator>();
-        movement = GetComponent<Movement>();
+        movement = GetComponentInParent<Movement>(); // 💡 ambil dari parent, bukan GetComponent
     }
 
     private void Update()
     {
-        if (animator == null || movement == null)
-            return;
+        if (movement == null) return;
 
-        // Ambil arah dari Movement
-        Vector2 dir = movement.direction;
-
-        // Kirim arah ke Animator
-        animator.SetFloat("MoveX", dir.x);
-        animator.SetFloat("MoveY", dir.y);
-
-        // Tambahkan parameter IsMoving
-        bool isMoving = dir.sqrMagnitude > 0.01f;  // periksa jika masih ada arah
-        animator.SetBool("IsMoving", isMoving);
+        // Misalnya kamu punya parameter MoveX, MoveY, dan IsMoving
+        animator.SetFloat("MoveX", movement.direction.x);
+        animator.SetFloat("MoveY", movement.direction.y);
+        animator.SetBool("IsMoving", movement.direction != Vector2.zero);
     }
 }

@@ -228,7 +228,6 @@ public class GameManager : MonoBehaviour
     {
         int points = sheep.points * sheepMultiplier;
         SetScore(score + points);
-        Debug.Log($"<color=red>Sheep eaten! +{points} points. Total: {score}</color>");
 
         Invoke(nameof(CheckWinCondition), 0.1f);
     }
