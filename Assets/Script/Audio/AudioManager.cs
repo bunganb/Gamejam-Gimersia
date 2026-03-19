@@ -1,10 +1,11 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class AudioManager : MonoBehaviour
 {
-    public static AudioManager Instance;
+    public static AudioManager Instance { get; private set; }
+
     [Header("Audio Sources")]
     public AudioSource bgmSource;
     public AudioSource sfxSource;
@@ -12,193 +13,251 @@ public class AudioManager : MonoBehaviour
     [Header("Audio Clips")]
     public List<NamedAudioClip> bgmClips;
     public List<NamedAudioClip> sfxClips;
-    [System.Serializable]
-public class NamedAudioClip
-{
-    public string name;        // nama yang kamu tentukan sendiri
-    public AudioClip clip;     // file audio-nya
-}
-    private Dictionary<string, AudioClip> bgmDict = new Dictionary<string, AudioClip>();
-    private Dictionary<string, AudioClip> sfxDict = new Dictionary<string, AudioClip>();
 
-    void Awake()
+    [Header("Volume Settings")]
+    [Range(0f, 1f)] public float masterVolume = 1f;
+    [Range(0f, 1f)] public float bgmVolume = 1f;
+    [Range(0f, 1f)] public float sfxVolume = 1f;
+
+    [System.Serializable]
+    public class NamedAudioClip
     {
-        if (Instance == null)
-        {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
+        public string name;
+        public AudioClip clip;
+    }
+
+    private Dictionary<string, AudioClip> _bgmDict = new();
+    private Dictionary<string, AudioClip> _sfxDict = new();
+
+    // Nama BGM yang sedang aktif (untuk cegah replay lagu yang sama)
+    private string _currentBGMName = "";
+
+    // Simpan referensi coroutine aktif agar bisa di-stop sebelum mulai yang baru
+    private Coroutine _bgmCoroutine;
+
+    // Properti target volume BGM setelah fade selesai
+    private float TargetBGMVolume => masterVolume * bgmVolume;
+
+    // ─────────────────────────────────────────────
+    //  LIFECYCLE
+    // ─────────────────────────────────────────────
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
             return;
         }
 
-        // Masukkan ke dictionary pakai nama alias
-        foreach (var item in bgmClips)
-            bgmDict[item.name] = item.clip;
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
 
-        foreach (var item in sfxClips)
-            sfxDict[item.name] = item.clip;
+        BuildDictionaries();
     }
 
+    private void BuildDictionaries()
+    {
+        _bgmDict.Clear();
+        _sfxDict.Clear();
+
+        foreach (var item in bgmClips)
+        {
+            if (item.clip == null)
+            {
+                Debug.LogWarning($"[AudioManager] BGM clip '{item.name}' is null, skipping.");
+                continue;
+            }
+            _bgmDict[item.name] = item.clip;
+        }
+
+        foreach (var item in sfxClips)
+        {
+            if (item.clip == null)
+            {
+                Debug.LogWarning($"[AudioManager] SFX clip '{item.name}' is null, skipping.");
+                continue;
+            }
+            _sfxDict[item.name] = item.clip;
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  BGM
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Memainkan BGM dengan nama tertentu. Jika sudah playing, tidak diulang.
+    /// </summary>
     public void PlayBGM(string name, float fadeDuration = 1.5f)
     {
-        if (!bgmDict.ContainsKey(name))
+        if (!_bgmDict.TryGetValue(name, out AudioClip clip))
         {
-            Debug.LogWarning("BGM tidak ditemukan: " + name);
+            Debug.LogWarning($"[AudioManager] BGM tidak ditemukan: '{name}'");
             return;
         }
 
-        // Jika ada BGM lain yang sedang main, fade out dulu sebelum ganti
+        // Hindari restart jika lagu yang sama sedang main
+        if (_currentBGMName == name && bgmSource.isPlaying) return;
+
+        _currentBGMName = name;
+
+        // Hentikan coroutine fade yang mungkin masih berjalan
+        StopBGMCoroutine();
+
         if (bgmSource.isPlaying)
-        {
-            StartCoroutine(SwitchBGMWithFade(name, fadeDuration));
-        }
+            _bgmCoroutine = StartCoroutine(SwitchBGMWithFade(clip, fadeDuration));
         else
-        {
-            StartCoroutine(FadeInBGM(name, fadeDuration));
-        }
+            _bgmCoroutine = StartCoroutine(FadeInBGM(clip, fadeDuration));
     }
 
+    /// <summary>
+    /// Menghentikan BGM dengan fade out.
+    /// </summary>
     public void StopBGM(float fadeDuration = 1.5f)
     {
-        StartCoroutine(FadeOutBGM(fadeDuration));
+        StopBGMCoroutine();
+        _currentBGMName = "";
+        _bgmCoroutine = StartCoroutine(FadeOutBGM(fadeDuration, stopAfterFade: true));
     }
 
+    /// <summary>
+    /// Pause BGM (berguna saat pause menu).
+    /// </summary>
+    public void PauseBGM() => bgmSource.Pause();
 
-    public void PlaySFX(string name)
+    /// <summary>
+    /// Resume BGM setelah di-pause.
+    /// </summary>
+    public void ResumeBGM() => bgmSource.UnPause();
+
+    // ─────────────────────────────────────────────
+    //  SFX
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Memainkan SFX sekali. Gunakan stopBGM = true untuk menghentikan BGM (contoh: scene end).
+    /// </summary>
+    public void PlaySFX(string name, bool stopBGM = false)
     {
-        if (sfxDict.ContainsKey(name))
+        if (!_sfxDict.TryGetValue(name, out AudioClip clip))
         {
-            AudioClip clip = sfxDict[name];
-            sfxSource.PlayOneShot(clip);
-            Debug.Log("Play SFX: " + name);
-
-            if (name.ToLower() == "win" || name.ToLower() == "lose")
-            {
-                // Matikan BGM sepenuhnya saat SFX Win/Lose dimainkan
-                StartCoroutine(StopBGMForWinLose(clip.length, 1.5f));
-            }
-
+            Debug.LogWarning($"[AudioManager] SFX tidak ditemukan: '{name}'");
+            return;
         }
-        else
+
+        sfxSource.volume = masterVolume * sfxVolume;
+        sfxSource.PlayOneShot(clip);
+        Debug.Log($"[AudioManager] Play SFX: {name}");
+
+        if (stopBGM)
         {
-            Debug.LogWarning("SFX tidak ditemukan: " + name);
+            StopBGMCoroutine();
+            _bgmCoroutine = StartCoroutine(FadeOutBGM(fadeDuration: 1.5f, stopAfterFade: true));
         }
     }
-    private IEnumerator FadeInBGM(string name, float fadeDuration)
+
+    // ─────────────────────────────────────────────
+    //  VOLUME CONTROL
+    // ─────────────────────────────────────────────
+
+    public void SetMasterVolume(float value)
     {
-        bgmSource.clip = bgmDict[name];
+        masterVolume = Mathf.Clamp01(value);
+        ApplyVolumes();
+    }
+
+    public void SetBGMVolume(float value)
+    {
+        bgmVolume = Mathf.Clamp01(value);
+        ApplyVolumes();
+    }
+
+    public void SetSFXVolume(float value)
+    {
+        sfxVolume = Mathf.Clamp01(value);
+        sfxSource.volume = masterVolume * sfxVolume;
+    }
+
+    private void ApplyVolumes()
+    {
+        // Hanya update volume jika tidak sedang dalam proses fade
+        if (_bgmCoroutine == null)
+            bgmSource.volume = TargetBGMVolume;
+    }
+
+    // ─────────────────────────────────────────────
+    //  COROUTINES (PRIVATE)
+    // ─────────────────────────────────────────────
+
+    private IEnumerator FadeInBGM(AudioClip clip, float fadeDuration)
+    {
+        bgmSource.clip = clip;
         bgmSource.volume = 0f;
         bgmSource.loop = true;
         bgmSource.Play();
 
-        float targetVolume = 1f;
-        float currentTime = 0f;
-
-        while (currentTime < fadeDuration)
-        {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(0f, targetVolume, currentTime / fadeDuration);
-            yield return null;
-        }
-
-        bgmSource.volume = targetVolume;
+        yield return FadeVolume(bgmSource, 0f, TargetBGMVolume, fadeDuration);
+        _bgmCoroutine = null;
     }
 
-    private IEnumerator FadeOutBGM(float fadeDuration)
+    private IEnumerator FadeOutBGM(float fadeDuration, bool stopAfterFade)
     {
-        float startVolume = bgmSource.volume;
-        float currentTime = 0f;
+        float startVol = bgmSource.volume;
+        yield return FadeVolume(bgmSource, startVol, 0f, fadeDuration);
 
-        while (currentTime < fadeDuration)
+        if (stopAfterFade)
         {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(startVolume, 0f, currentTime / fadeDuration);
-            yield return null;
+            bgmSource.Stop();
+            bgmSource.volume = TargetBGMVolume; // Reset untuk play berikutnya
         }
 
-        bgmSource.Stop();
-        bgmSource.volume = startVolume;
+        _bgmCoroutine = null;
     }
 
-    // Ganti BGM lama ke baru dengan transisi halus
-    private IEnumerator SwitchBGMWithFade(string newName, float fadeDuration)
+    private IEnumerator SwitchBGMWithFade(AudioClip newClip, float fadeDuration)
     {
-        float startVolume = bgmSource.volume;
-        float currentTime = 0f;
+        // Fade out lagu lama
+        float startVol = bgmSource.volume;
+        yield return FadeVolume(bgmSource, startVol, 0f, fadeDuration);
 
-        // Fade out dulu
-        while (currentTime < fadeDuration)
-        {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(startVolume, 0f, currentTime / fadeDuration);
-            yield return null;
-        }
-
-        // Ganti lagu
-        bgmSource.clip = bgmDict[newName];
+        // Ganti clip dan play
+        bgmSource.clip = newClip;
+        bgmSource.loop = true;
         bgmSource.Play();
 
-        // Fade in
-        currentTime = 0f;
-        while (currentTime < fadeDuration)
-        {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(0f, startVolume, currentTime / fadeDuration);
-            yield return null;
-        }
-
-        bgmSource.volume = startVolume;
+        // Fade in lagu baru ke target volume
+        yield return FadeVolume(bgmSource, 0f, TargetBGMVolume, fadeDuration);
+        _bgmCoroutine = null;
     }
-    private IEnumerator DuckBGMWhileSFX(float sfxDuration, float fadeDuration)
+
+    /// <summary>
+    /// Utilitas fade volume reusable — menghindari duplikasi kode di setiap coroutine.
+    /// </summary>
+    private IEnumerator FadeVolume(AudioSource source, float from, float to, float duration)
     {
-        float originalVolume = bgmSource.volume;
-        float currentTime = 0f;
-
-        // Fade out (turunkan volume pelan)
-        while (currentTime < fadeDuration)
+        if (duration <= 0f)
         {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(originalVolume, 0f, currentTime / fadeDuration);
-            yield return null;
+            source.volume = to;
+            yield break;
         }
 
-        bgmSource.volume = 0f;
-
-        // Tunggu sampai SFX selesai + sedikit delay agar tidak terlalu tiba-tiba
-        yield return new WaitForSeconds(sfxDuration + 0.5f);
-
-        // Fade in kembali ke volume semula
-        currentTime = 0f;
-        while (currentTime < fadeDuration)
+        float elapsed = 0f;
+        while (elapsed < duration)
         {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(0f, originalVolume, currentTime / fadeDuration);
+            elapsed += Time.unscaledDeltaTime; // unscaledDeltaTime agar bekerja saat Time.timeScale = 0 (pause)
+            source.volume = Mathf.Lerp(from, to, elapsed / duration);
             yield return null;
         }
-
-        bgmSource.volume = originalVolume;
+        source.volume = to;
     }
-    private IEnumerator StopBGMForWinLose(float sfxDuration, float fadeDuration)
+
+    private void StopBGMCoroutine()
     {
-        // Fade out BGM sepenuhnya
-        float startVolume = bgmSource.volume;
-        float currentTime = 0f;
-
-        while (currentTime < fadeDuration)
+        if (_bgmCoroutine != null)
         {
-            currentTime += Time.deltaTime;
-            bgmSource.volume = Mathf.Lerp(startVolume, 0f, currentTime / fadeDuration);
-            yield return null;
+            StopCoroutine(_bgmCoroutine);
+            _bgmCoroutine = null;
         }
-
-        bgmSource.Stop();
-        bgmSource.volume = startVolume;
-
-        // Tunggu sampai SFX selesai (agar tidak langsung restart)
-        yield return new WaitForSeconds(sfxDuration);
     }
-
 }
