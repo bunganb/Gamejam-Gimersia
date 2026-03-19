@@ -2,10 +2,24 @@ using UnityEngine;
 
 public class StartBGM : MonoBehaviour
 {
-    public string bgmName;
+    [SerializeField] private string bgmName;
+    [SerializeField] private float fadeDuration = 1.5f;
 
     private void Start()
     {
-        AudioManager.Instance.PlayBGM(bgmName);
+        if (AudioManager.Instance == null)
+        {
+            Debug.LogError("AudioManager instance is not found!");
+            return;
+        }
+
+        if(string.IsNullOrEmpty(bgmName))
+        {
+            Debug.LogWarning("BGM name is not set. No BGM will be played.");
+            return;
+        }
+
+        AudioManager.Instance.PlayBGM(bgmName, fadeDuration);
+
     }
 }
