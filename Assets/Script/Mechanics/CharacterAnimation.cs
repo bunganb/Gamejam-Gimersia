@@ -1,23 +1,39 @@
 using UnityEngine;
 
+[RequireComponent(typeof(Animator))]
 public class CharacterAnimation : MonoBehaviour
 {
+    private static readonly int MoveX = Animator.StringToHash("MoveX");
+    private static readonly int MoveY = Animator.StringToHash("MoveY");
+    private static readonly int IsMoving = Animator.StringToHash("IsMoving");
+
     private Animator animator;
     private Movement movement;
 
     private void Awake()
     {
         animator = GetComponent<Animator>();
-        movement = GetComponentInParent<Movement>(); // 💡 ambil dari parent, bukan GetComponent
+        // Coba cari di GameObject yang sama terlebih dahulu
+        movement = GetComponent<Movement>();
+        if (movement == null)
+            movement = GetComponentInParent<Movement>(); // fallback
+
+        if (movement != null)
+            movement.OnDirectionChanged.AddListener(OnDirectionChanged);
+        else
+            Debug.LogError("Movement not found!", this);
     }
 
-    private void Update()
+    private void OnDirectionChanged(Vector2 dir)
     {
-        if (movement == null) return;
+        animator.SetFloat(MoveX, dir.x);
+        animator.SetFloat(MoveY, dir.y);
+        animator.SetBool(IsMoving, dir != Vector2.zero);
+    }
 
-        // Misalnya kamu punya parameter MoveX, MoveY, dan IsMoving
-        animator.SetFloat("MoveX", movement.direction.x);
-        animator.SetFloat("MoveY", movement.direction.y);
-        animator.SetBool("IsMoving", movement.direction != Vector2.zero);
+    private void OnDestroy()
+    {
+        if (movement != null)
+            movement.OnDirectionChanged.RemoveListener(OnDirectionChanged);
     }
 }
