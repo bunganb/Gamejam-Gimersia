@@ -1,56 +1,76 @@
+﻿// Wolf.cs
 using UnityEngine;
 
 [RequireComponent(typeof(Movement))]
 public class Wolf : MonoBehaviour
 {
-    private Movement movement;
-
+    private Movement _movement;
     private Vector2 _bufferedInput = Vector2.zero;
-    private bool _hasBufferedInput = false;
 
-    public bool InputEnable { get; set; } = true;
+    public bool InputEnabled { get; set; } = true;
+
+    // ─────────────────────────────────────────────
+    //  LIFECYCLE
+    // ─────────────────────────────────────────────
 
     private void Awake()
     {
-        movement = GetComponent<Movement>();
+        _movement = GetComponent<Movement>();
+
+        if (!_movement.freeMovement)
+        {
+            _movement.freeMovement = true;
+            Debug.LogWarning("[Wolf] freeMovement di-set TRUE otomatis. " +
+                             "Sebaiknya set manual di Inspector.");
+        }
     }
 
     private void Update()
     {
-        if(!InputEnable) return;
+        if (!InputEnabled) return;
 
-        Vector2 input = GetInputDirection();
-        if(input != Vector2.zero)
-        {
-            if(movement.Direction == Vector2.zero)
-            {
-                movement.SetDirection(input);
-            }
-            else
-            {
-                _bufferedInput = input;
-                _hasBufferedInput = true;
-            }
-        }
+        Vector2 input = GetCardinalInput();
+        if (input == Vector2.zero) return;
+
+        _bufferedInput = input;
+        _movement.SetDirection(input);
     }
 
     private void FixedUpdate()
     {
-        if(_hasBufferedInput)
-        {
-            movement.SetDirection(_bufferedInput);
-            _hasBufferedInput = false;
-        }
+        if (!InputEnabled || _bufferedInput == Vector2.zero) return;
+
+        if (_movement.Direction != _bufferedInput)
+            _movement.SetDirection(_bufferedInput);
     }
 
-    private Vector2 GetInputDirection()
+    // ─────────────────────────────────────────────
+    //  PUBLIC API
+    // ─────────────────────────────────────────────
+
+    public void DisableInput()
     {
-        float horizontal = Input.GetAxisRaw("Horizontal");
-        float vertical = Input.GetAxisRaw("Vertical");
-        Vector2 input = new Vector2(horizontal, vertical).normalized;
-        return input;
+        InputEnabled = false;
+        _bufferedInput = Vector2.zero;
+        Debug.Log("[Wolf] Input disabled");
     }
 
-    public void DisableInput() => InputEnable = false;
-    public void EnableInput() => InputEnable = true;
+    public void EnableInput()
+    {
+        InputEnabled = true;
+        Debug.Log("[Wolf] Input enabled");
+    }
+
+    // ─────────────────────────────────────────────
+    //  PRIVATE
+    // ─────────────────────────────────────────────
+
+    private Vector2 GetCardinalInput()
+    {
+        if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) return Vector2.up;
+        if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) return Vector2.down;
+        if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) return Vector2.left;
+        if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) return Vector2.right;
+        return Vector2.zero;
+    }
 }

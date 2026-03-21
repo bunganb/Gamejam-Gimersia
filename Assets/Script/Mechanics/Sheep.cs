@@ -1,158 +1,211 @@
+﻿// Sheep.cs
 using System.Collections;
 using UnityEngine;
 
-[DefaultExecutionOrder(-10)]
-[RequireComponent(typeof(Movement))]
 public class Sheep : MonoBehaviour
 {
-    public Movement movement { get; private set; }
-    public Transform target;
+    [Header("Stats")]
     public int points = 10;
-    private Animator animator;
 
-    [Header("Debug")]
-    public bool showDebugLogs = false;
+    [Header("Colliders")]
+    [SerializeField] private Collider2D physicsCollider;
+    [SerializeField] private Collider2D triggerCollider;
 
-    // Death flag untuk mencegah multiple calls
-    private bool isDead = false;
+    [Header("Detection")]
+    [SerializeField] private LayerMask wolfLayer;
 
-    // Public property untuk diakses GameManager
-    public bool IsDead
-    {
-        get { return isDead; }
-    }
+    [Header("Death Animation")]
+    [SerializeField] private string deathBoolName = "IsDead";
+    [SerializeField] private string deathStateName = "Sheep_Dead";
+    [SerializeField] private float fallbackDeathDuration = 1f;
+
+    public bool IsDead { get; private set; } = false;
+
+    private Animator _animator;
+    private SheepAI _ai;
+    private Movement _movement;
+
+    // ─────────────────────────────────────────────
+    //  LIFECYCLE
+    // ─────────────────────────────────────────────
 
     private void Awake()
     {
-        movement = GetComponent<Movement>();
-        animator = GetComponentInChildren<Animator>();
+        _animator = GetComponent<Animator>();
+        _ai = GetComponent<SheepAI>();
+        _movement = GetComponent<Movement>();
+
+        if (physicsCollider == null || triggerCollider == null)
+            AutoDetectColliders();
     }
 
-    private void Start()
-    {
-        ResetState();
-    }
-
-    public void ResetState()
-    {
-        isDead = false;
-        gameObject.SetActive(true);
-        movement.ResetState();
-
-        // Reset animator state
-        if (animator != null)
-        {
-            animator.SetBool("IsDead", false);
-            animator.Rebind();
-        }
-
-        // Aktifkan komponen yang dimatikan di Die()
-        if (movement != null)
-            movement.enabled = true;
-
-        Collider2D col = GetComponent<Collider2D>();
-        if (col != null)
-            col.enabled = true;
-    }
-
-    public void SetPosition(Vector3 position)
-    {
-        position.z = transform.position.z;
-        transform.position = position;
-    }
+    // ─────────────────────────────────────────────
+    //  COLLISION
+    // ─────────────────────────────────────────────
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (showDebugLogs)
-            Debug.Log($"{gameObject.name} TRIGGER with {other.gameObject.name} (Layer: {LayerMask.LayerToName(other.gameObject.layer)})");
+        bool isWolf = (wolfLayer.value & (1 << other.gameObject.layer)) != 0
+                   || other.GetComponent<Wolf>() != null;
 
-        // Cek sudah mati atau belum
-        if (isDead) return;
+        if (!isWolf) return;
 
-        if (other.gameObject.layer == LayerMask.NameToLayer("Food"))
-        {
-            Food food = other.GetComponent<Food>();
-            if (food != null)
-            {
-                food.Eat();
-            }
-        }
-
-        if (other.gameObject.layer == LayerMask.NameToLayer("Wolf"))
-        {
-            if (showDebugLogs)
-                Debug.Log($"<color=red>{gameObject.name} caught by wolf via TRIGGER!</color>");
-
-            isDead = true;
-
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.SheepEaten(this);
-            }
-            Die();
-        }
+        Debug.Log($"[Sheep:{name}] 🐺 Wolf terdeteksi!");
+        Die();
     }
 
-    private void OnCollisionEnter2D(Collision2D collision)
-    {
-        if (showDebugLogs)
-            Debug.Log($"{gameObject.name} COLLISION with {collision.gameObject.name} (Layer: {LayerMask.LayerToName(collision.gameObject.layer)})");
-
-        if (isDead) return;
-
-        if (collision.gameObject.layer == LayerMask.NameToLayer("Wolf"))
-        {
-            isDead = true;
-
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.SheepEaten(this);
-            }
-            Die();
-        }
-    }
+    // ─────────────────────────────────────────────
+    //  DIE
+    // ─────────────────────────────────────────────
 
     public void Die()
     {
-        // Double check
-        if (isDead == false)
+        if (IsDead) return;
+        IsDead = true;
+
+        Debug.Log($"[Sheep:{name}] 💀 Die()");
+
+        if (physicsCollider != null) physicsCollider.enabled = false;
+        if (triggerCollider != null) triggerCollider.enabled = false;
+
+        if (_ai != null) _ai.enabled = false;
+        if (_movement != null)
         {
-            isDead = true;
+            _movement.enabled = false;
+            _movement.Rb.linearVelocity = Vector2.zero;
+            _movement.Rb.bodyType = RigidbodyType2D.Static;
         }
 
-        if (animator != null)
-        {
-            animator.SetBool("IsDead", true);
-        }
+        if (GameManager.Instance != null)
+            GameManager.Instance.SheepEaten(this);
+        else
+            Debug.LogError($"[Sheep:{name}] ❌ GameManager null!");
 
-        if (movement != null)
-            movement.enabled = false;
-
-        Collider2D col = GetComponent<Collider2D>();
-        if (col != null)
-            col.enabled = false;
-
-        // Play slash sound
-        AudioManager.Instance.PlaySFX("Slash");
-
-        // Trigger UI Slash VFX
-        if (SlashVFX.Instance != null)
-        {
-            SlashVFX.Instance.PlayEffect();
-        }
-
-        StartCoroutine(DisableAfterAnimation());
+        StartCoroutine(PlayDeathAndDeactivate());
     }
 
-    private IEnumerator DisableAfterAnimation()
-    {
-        yield return null;
-        yield return new WaitForSeconds(1.5f);
+    // ─────────────────────────────────────────────
+    //  RESET
+    // ─────────────────────────────────────────────
 
-        // Pastikan masih dalam state mati sebelum disable
-        if (isDead && gameObject.activeInHierarchy)
+    public void ResetSheep()
+    {
+        IsDead = false;
+
+        if (physicsCollider != null) physicsCollider.enabled = true;
+        if (triggerCollider != null) triggerCollider.enabled = true;
+        if (_ai != null) _ai.enabled = true;
+        if (_movement != null)
         {
-            gameObject.SetActive(false);
+            _movement.enabled = true;
+            _movement.Rb.bodyType = RigidbodyType2D.Dynamic;
         }
+
+        if (_animator != null)
+        {
+            _animator.SetBool(deathBoolName, false);
+            _animator.Rebind();
+            _animator.Update(0f);
+        }
+
+        Debug.Log($"[Sheep:{name}] 🔄 Reset");
+    }
+
+    // ─────────────────────────────────────────────
+    //  COROUTINE
+    // ─────────────────────────────────────────────
+
+    private IEnumerator PlayDeathAndDeactivate()
+    {
+        if (_animator == null)
+        {
+            Deactivate();
+            yield break;
+        }
+
+        if (!HasParameter(deathBoolName, AnimatorControllerParameterType.Bool))
+        {
+            Debug.LogWarning($"[Sheep:{name}] ⚠️ Parameter '{deathBoolName}' tidak ditemukan. " +
+                             $"Parameter tersedia: {GetAllParameterNames()}");
+            yield return new WaitForSeconds(fallbackDeathDuration);
+            Deactivate();
+            yield break;
+        }
+
+        _animator.SetBool(deathBoolName, true);
+        Debug.Log($"[Sheep:{name}] 🎬 '{deathBoolName}' = true");
+
+        // Tunggu 2 frame agar Animator transisi
+        yield return null;
+        yield return null;
+
+        AnimatorStateInfo info = _animator.GetCurrentAnimatorStateInfo(0);
+
+        if (!info.IsName(deathStateName))
+        {
+            Debug.LogWarning($"[Sheep:{name}] ⚠️ State '{deathStateName}' tidak aktif! " +
+                             $"Cek nama state di Animator.");
+            yield return new WaitForSeconds(fallbackDeathDuration);
+            Deactivate();
+            yield break;
+        }
+
+        // Tunggu animasi selesai
+        while (true)
+        {
+            info = _animator.GetCurrentAnimatorStateInfo(0);
+
+            if (info.IsName(deathStateName) && info.normalizedTime >= 1f) break;
+            if (!info.IsName(deathStateName)) break;
+
+            yield return null;
+        }
+
+        Deactivate();
+    }
+
+    private void Deactivate()
+    {
+        Debug.Log($"[Sheep:{name}] 🚫 Deactivated");
+        gameObject.SetActive(false);
+    }
+
+    // ─────────────────────────────────────────────
+    //  HELPERS
+    // ─────────────────────────────────────────────
+
+    private void AutoDetectColliders()
+    {
+        Collider2D[] cols = GetComponents<Collider2D>();
+
+        if (cols.Length < 2)
+        {
+            Debug.LogWarning($"[Sheep:{name}] ⚠️ Kurang dari 2 collider! Ditemukan: {cols.Length}");
+            if (cols.Length == 1) physicsCollider = cols[0];
+            return;
+        }
+
+        foreach (Collider2D col in cols)
+        {
+            if (col.isTrigger) triggerCollider = col;
+            else physicsCollider = col;
+        }
+    }
+
+    private bool HasParameter(string paramName, AnimatorControllerParameterType type)
+    {
+        if (_animator == null) return false;
+        foreach (AnimatorControllerParameter p in _animator.parameters)
+            if (p.name == paramName && p.type == type) return true;
+        return false;
+    }
+
+    private string GetAllParameterNames()
+    {
+        if (_animator == null) return "animator null";
+        var sb = new System.Text.StringBuilder();
+        foreach (AnimatorControllerParameter p in _animator.parameters)
+            sb.Append($"{p.name}({p.type}) ");
+        return sb.ToString();
     }
 }
