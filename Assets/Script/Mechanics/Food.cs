@@ -1,28 +1,23 @@
+﻿// Food.cs
 using UnityEngine;
 
 public class Food : MonoBehaviour
 {
     public int points = 10;
 
-    private void Start()
+    private void OnTriggerEnter2D(Collider2D other)
     {
-        Collider2D collider = GetComponent<Collider2D>();
+        if (other.GetComponent<Sheep>() == null) return;
+
+        Debug.Log($"[Food:{name}] Dimakan oleh {other.name}");
+        Eat();
     }
 
     public virtual void Eat()
     {
         if (GameManager.Instance != null)
-        {
             GameManager.Instance.FoodEaten(this);
-        }
-
-    }
-
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        if (other.gameObject.layer == LayerMask.NameToLayer("Sheep"))
-        {
-            Eat();
-        }
+        else
+            Debug.LogError($"[Food:{name}] ❌ GameManager null!");
     }
 }
