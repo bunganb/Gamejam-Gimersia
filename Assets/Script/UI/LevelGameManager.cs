@@ -7,10 +7,10 @@ public class LevelGameManager : MonoBehaviour
     // Dipanggil ketika player menang
     public void WinLevel()
     {
-        // Unlock level berikutnya menggunakan static method di LoadMainMenu
+        // Unlock level berikutnya
         LoadMainMenu.CompleteLevel(currentLevelId);
 
-        // Tampilkan UI kemenangan atau langsung kembali ke main menu
+        // Tampilkan UI kemenangan (bisa diimplementasikan sesuai kebutuhan)
         ShowWinScreen();
     }
 
@@ -25,7 +25,8 @@ public class LevelGameManager : MonoBehaviour
         }
         else
         {
-            // Fallback: buat GameObject baru dengan script LoadMainMenu
+            // Jika tidak ditemukan, buat temporary loader (fallback)
+            Debug.LogWarning("LoadMainMenu not found, creating temporary loader.");
             GameObject tempObj = new GameObject("TempLoader");
             LoadMainMenu tempLoader = tempObj.AddComponent<LoadMainMenu>();
             tempLoader.LoadMainMenuWithLevelsPanel();
@@ -49,6 +50,11 @@ public class LevelGameManager : MonoBehaviour
         if (loadMenu != null)
         {
             loadMenu.LoadMainMenuWithLevelsPanel();
+        }
+        else
+        {
+            // Fallback: muat scene MainMenu langsung tanpa membuka panel levels
+            UnityEngine.SceneManagement.SceneManager.LoadScene("MainMenu");
         }
     }
 }

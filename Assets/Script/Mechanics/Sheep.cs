@@ -1,16 +1,16 @@
+﻿// Sheep.cs
 using System.Collections;
 using UnityEngine;
 
-[DefaultExecutionOrder(-10)]
-[RequireComponent(typeof(Movement))]
 public class Sheep : MonoBehaviour
 {
     public Movement Movement { get; private set; }
     public int points = 10;
     public bool IsDead { get; private set; }
 
-    [Header("Debug")]
-    public bool showDebugLogs = false;
+    [Header("Colliders")]
+    [SerializeField] private Collider2D physicsCollider;
+    [SerializeField] private Collider2D triggerCollider;
 
     private Animator _animator;
     private Collider2D _collider;

@@ -1,3 +1,4 @@
+﻿// Wolf.cs
 using UnityEngine;
 
 [RequireComponent(typeof(Movement))]
