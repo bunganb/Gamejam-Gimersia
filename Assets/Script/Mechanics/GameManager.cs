@@ -2,15 +2,16 @@ using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
-using UnityEngine.UI; // untuk tombol Cancel
+using UnityEngine.UI;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
     public Wolf wolf;
-    public Transform foods;
+    public Transform foods;          // Parent dari semua makanan
 
     [Header("Visual Effects")]
     public Volume globalVolume;
@@ -18,25 +19,24 @@ public class GameManager : MonoBehaviour
     [Header("UI References")]
     public GameObject gameOverUI;
     public GameObject winUI;
-    public Button NextButton; // tombol cancel di UI Win
+    public Button NextButton;
 
-    private int sheepMultiplier = 1;
-    public int score { get; private set; }
-    public int lives { get; private set; }
-
-    private bool gameEnded = false;
+    public int Score { get; private set; }
+    private bool _gameEnded = false;
+    private int _sheepMultiplier = 1; // bisa digunakan untuk power-up nanti
 
     // Power-up state
-    private Coroutine openMapCoroutine;
-    private Coroutine howlOfFearCoroutine;
-    private float originalVignetteIntensity;
-    private float originalVignetteSmoothness;
+    private Coroutine _openMapCoroutine;
+    private Coroutine _howlOfFearCoroutine;
+    private float _originalVignetteIntensity;
+    private float _originalVignetteSmoothness;
 
     private void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
+            DontDestroyOnLoad(gameObject);
             Debug.Log("GameManager Instance created!");
         }
         else
@@ -45,13 +45,12 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        if (globalVolume != null && globalVolume.profile.TryGet(out UnityEngine.Rendering.Universal.Vignette vignette))
+        if (globalVolume != null && globalVolume.profile.TryGet(out Vignette vignette))
         {
-            originalVignetteIntensity = vignette.intensity.value;
-            originalVignetteSmoothness = vignette.smoothness.value;
+            _originalVignetteIntensity = vignette.intensity.value;
+            _originalVignetteSmoothness = vignette.smoothness.value;
         }
 
-        // pastikan cancelButton dikaitkan di inspector
         if (NextButton != null)
             NextButton.onClick.AddListener(OnNextButtonClicked);
     }
@@ -63,8 +62,8 @@ public class GameManager : MonoBehaviour
 
     private void NewGame()
     {
-        SetScore(0);
-        gameEnded = false;
+        Score = 0;
+        _gameEnded = false;
 
         if (gameOverUI != null) gameOverUI.SetActive(false);
         if (winUI != null) winUI.SetActive(false);
@@ -74,94 +73,84 @@ public class GameManager : MonoBehaviour
 
     private void NewRound()
     {
-        foreach (Transform food in this.foods)
-        {
+        foreach (Transform food in foods)
             food.gameObject.SetActive(true);
-        }
         ResetState();
     }
 
     private void ResetState()
     {
-        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        Sheep[] allSheep = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
         foreach (Sheep sheep in allSheep)
-        {
-            sheep.gameObject.SetActive(true);
-        }
+            sheep.ResetState(); // kita tambahkan method ResetState di Sheep nanti
 
-        if (this.wolf != null)
-        {
-            this.wolf.gameObject.SetActive(true);
-        }
+        if (wolf != null)
+            wolf.gameObject.SetActive(true);
     }
 
     private void GameOver()
     {
-        if (gameEnded) return;
-        gameEnded = true;
+        if (_gameEnded) return;
+        _gameEnded = true;
 
-        Sheep[] allSheep = FindObjectsOfType<Sheep>();
+        Sheep[] allSheep = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
         foreach (Sheep sheep in allSheep)
-        {
             sheep.gameObject.SetActive(false);
-        }
 
-        if (this.wolf != null)
-        {
-            this.wolf.gameObject.SetActive(false);
-        }
-
-        if (gameOverUI != null)
-        {
-            gameOverUI.SetActive(true);
-        }
-        AudioManager.Instance.PlaySFX("Lose");
+        if (wolf != null) wolf.gameObject.SetActive(false);
+        if (gameOverUI != null) gameOverUI.SetActive(true);
+        AudioManager.Instance?.PlaySFX("Lose");
         Debug.Log("<color=red>GAME OVER! No food left - Wolf wins!</color>");
-    }
-
-    private void SetScore(int score)
-    {
-        this.score = score;
     }
 
     public void FoodEaten(Food food)
     {
         food.gameObject.SetActive(false);
-
         if (!HasRemainingFoods())
-        {
             GameOver();
-        }
     }
 
-    // === WIN HANDLING ===
-    void Win()
+    private bool HasRemainingFoods()
     {
-        if (gameEnded) return;
-        gameEnded = true;
+        foreach (Transform food in foods)
+            if (food.gameObject.activeSelf) return true;
+        return false;
+    }
 
-        if (this.wolf != null)
-        {
-            this.wolf.gameObject.SetActive(false);
-        }
+    public void SheepEaten(Sheep sheep)
+    {
+        Score += sheep.points * _sheepMultiplier;
+        // Cek kemenangan setelah domba dimakan, tidak pakai Invoke
+        CheckWinCondition();
+    }
 
-        if (winUI != null)
-        {
-            winUI.SetActive(true);
-        }
-        AudioManager.Instance.PlaySFX("Win");
+    private void CheckWinCondition()
+    {
+        Sheep[] allSheep = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
+        int livingSheep = 0;
+        foreach (Sheep s in allSheep)
+            if (s.gameObject.activeSelf && !s.IsDead)
+                livingSheep++;
+
+        Debug.Log($"Living sheep remaining: {livingSheep}");
+        if (livingSheep == 0)
+            Win();
+    }
+
+    private void Win()
+    {
+        if (_gameEnded) return;
+        _gameEnded = true;
+
+        if (wolf != null) wolf.gameObject.SetActive(false);
+        if (winUI != null) winUI.SetActive(true);
+        AudioManager.Instance?.PlaySFX("Win");
         Debug.Log("<color=green>PLAYER WINS! All sheep have been eaten!</color>");
     }
 
-    // dipanggil dari tombol cancel (UI Win)
     private void OnNextButtonClicked()
     {
-        Debug.Log("Cancel clicked ? kembali ke MainMenu dan buka Level 2");
-
-        // buka akses level baru
         UnlockNewLevel();
-
-        // muat scene MainMenu
         StartCoroutine(ReturnToMainMenu());
     }
 
@@ -169,108 +158,40 @@ public class GameManager : MonoBehaviour
     {
         AsyncOperation loadScene = SceneManager.LoadSceneAsync("MainMenu");
         yield return new WaitUntil(() => loadScene.isDone);
-
-        // Tunggu 1 frame agar Canvas dan panel teraktifkan
         yield return new WaitForEndOfFrame();
 
-        // Cari Canvas dulu, baru cari anak-anaknya
-        Canvas canvas = FindObjectOfType<Canvas>();
-        if (canvas == null)
-        {
-            Debug.LogError("Canvas tidak ditemukan di scene MainMenu!");
-            yield break;
-        }
+        Canvas canvas = FindFirstObjectByType<Canvas>();
+        if (canvas == null) yield break;
 
         Transform mainMenu = canvas.transform.Find("MainMenu");
         Transform levelsPanel = canvas.transform.Find("LevelsPanel");
-
-        if (mainMenu == null)
-            Debug.LogWarning("Panel MainMenu tidak ditemukan di Canvas!");
-        if (levelsPanel == null)
-            Debug.LogWarning("Panel LevelsPanel tidak ditemukan di Canvas!");
-
-        if (mainMenu != null)
-            mainMenu.gameObject.SetActive(false);
-        if (levelsPanel != null)
-            levelsPanel.gameObject.SetActive(true);
-
-        Debug.Log("<color=yellow>MainMenu loaded - LevelsPanel aktif</color>");
+        if (mainMenu != null) mainMenu.gameObject.SetActive(false);
+        if (levelsPanel != null) levelsPanel.gameObject.SetActive(true);
     }
 
     private void UnlockNewLevel()
     {
         int currentIndex = SceneManager.GetActiveScene().buildIndex;
-        int reached = PlayerPrefs.GetInt("ReachedIndex", 1);
-
-        if (currentIndex >= reached)
+        int unlocked = PlayerPrefs.GetInt("UnlockedLevel", 1);
+        if (currentIndex >= unlocked)
         {
-            PlayerPrefs.SetInt("ReachedIndex", currentIndex + 1);
-            PlayerPrefs.SetInt("UnlockedLevel", PlayerPrefs.GetInt("UnlockedLevel", 1) + 1);
+            PlayerPrefs.SetInt("UnlockedLevel", currentIndex + 1);
             PlayerPrefs.Save();
             Debug.Log("<color=lime>Level baru terbuka!</color>");
         }
     }
-    // === END WIN HANDLING ===
 
-    private bool HasRemainingFoods()
-    {
-        foreach (Transform food in foods)
-        {
-            if (food.gameObject.activeSelf)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public void SheepEaten(Sheep sheep)
-    {
-        int points = sheep.points * sheepMultiplier;
-        SetScore(score + points);
-
-        Invoke(nameof(CheckWinCondition), 0.1f);
-    }
-
-    void CheckWinCondition()
-    {
-        Sheep[] allSheep = FindObjectsOfType<Sheep>();
-
-        int livingSheep = 0;
-        foreach (Sheep s in allSheep)
-        {
-            // HANYA hitung Sheep yang BUKAN mati dan masih aktif
-            if (s.gameObject.activeSelf && !s.IsDead)
-            {
-                livingSheep++;
-            }
-        }
-
-        Debug.Log($"Living sheep remaining: {livingSheep}");
-
-        if (livingSheep == 0)
-        {
-            Win();
-        }
-    }
-
-    // === Power-ups tetap sama ===
+    // Power-ups (sama seperti sebelumnya, hanya perbaikan nama variabel)
     public void ActivateOpenMap(float duration, float targetIntensity, float targetSmoothness)
     {
-        if (openMapCoroutine != null)
-        {
-            StopCoroutine(openMapCoroutine);
-        }
-
-        openMapCoroutine = StartCoroutine(OpenMapEffect(duration, targetIntensity, targetSmoothness));
+        if (_openMapCoroutine != null) StopCoroutine(_openMapCoroutine);
+        _openMapCoroutine = StartCoroutine(OpenMapEffect(duration, targetIntensity, targetSmoothness));
     }
 
     private IEnumerator OpenMapEffect(float duration, float targetIntensity, float targetSmoothness)
     {
-        if (globalVolume == null || !globalVolume.profile.TryGet(out UnityEngine.Rendering.Universal.Vignette vignette))
-        {
+        if (globalVolume == null || !globalVolume.profile.TryGet(out Vignette vignette))
             yield break;
-        }
 
         float stepSize = 0.1f;
         float stepDelay = 0.05f;
@@ -280,7 +201,6 @@ public class GameManager : MonoBehaviour
             vignette.intensity.value = Mathf.Max(vignette.intensity.value - stepSize, targetIntensity);
             yield return new WaitForSeconds(stepDelay);
         }
-
         while (vignette.smoothness.value > targetSmoothness)
         {
             vignette.smoothness.value = Mathf.Max(vignette.smoothness.value - stepSize, targetSmoothness);
@@ -292,48 +212,42 @@ public class GameManager : MonoBehaviour
 
         yield return new WaitForSeconds(duration);
 
-        while (vignette.intensity.value < originalVignetteIntensity)
+        while (vignette.intensity.value < _originalVignetteIntensity)
         {
-            vignette.intensity.value = Mathf.Min(vignette.intensity.value + stepSize, originalVignetteIntensity);
+            vignette.intensity.value = Mathf.Min(vignette.intensity.value + stepSize, _originalVignetteIntensity);
+            yield return new WaitForSeconds(stepDelay);
+        }
+        while (vignette.smoothness.value < _originalVignetteSmoothness)
+        {
+            vignette.smoothness.value = Mathf.Min(vignette.smoothness.value + stepSize, _originalVignetteSmoothness);
             yield return new WaitForSeconds(stepDelay);
         }
 
-        while (vignette.smoothness.value < originalVignetteSmoothness)
-        {
-            vignette.smoothness.value = Mathf.Min(vignette.smoothness.value + stepSize, originalVignetteSmoothness);
-            yield return new WaitForSeconds(stepDelay);
-        }
-
-        vignette.intensity.value = originalVignetteIntensity;
-        vignette.smoothness.value = originalVignetteSmoothness;
-
-        openMapCoroutine = null;
+        vignette.intensity.value = _originalVignetteIntensity;
+        vignette.smoothness.value = _originalVignetteSmoothness;
+        _openMapCoroutine = null;
     }
 
     public void ActivateHowlOfFear(float duration, float speedMultiplier)
     {
-        if (howlOfFearCoroutine != null)
-        {
-            StopCoroutine(howlOfFearCoroutine);
-        }
-
-        howlOfFearCoroutine = StartCoroutine(HowlOfFearEffect(duration, speedMultiplier));
+        if (_howlOfFearCoroutine != null) StopCoroutine(_howlOfFearCoroutine);
+        _howlOfFearCoroutine = StartCoroutine(HowlOfFearEffect(duration, speedMultiplier));
     }
 
     private IEnumerator HowlOfFearEffect(float duration, float speedMultiplier)
     {
-        Sheep[] allSheep = FindObjectsOfType<Sheep>();
-        System.Collections.Generic.Dictionary<Sheep, float> originalSpeeds = new System.Collections.Generic.Dictionary<Sheep, float>();
+        Sheep[] allSheep = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
+        var originalSpeeds = new System.Collections.Generic.Dictionary<Sheep, float>();
 
         foreach (Sheep sheep in allSheep)
         {
             if (sheep != null && sheep.gameObject.activeSelf)
             {
-                SheepAI sheepAI = sheep.GetComponent<SheepAI>();
-                if (sheepAI != null)
+                SheepAI ai = sheep.GetComponent<SheepAI>();
+                if (ai != null)
                 {
-                    originalSpeeds[sheep] = sheepAI.normalSpeed;
-                    sheepAI.normalSpeed *= speedMultiplier;
+                    originalSpeeds[sheep] = ai.normalSpeed;
+                    ai.normalSpeed *= speedMultiplier;
                 }
             }
         }
@@ -342,19 +256,12 @@ public class GameManager : MonoBehaviour
 
         foreach (var pair in originalSpeeds)
         {
-            Sheep sheep = pair.Key;
-            float originalSpeed = pair.Value;
-
-            if (sheep != null)
+            if (pair.Key != null)
             {
-                SheepAI sheepAI = sheep.GetComponent<SheepAI>();
-                if (sheepAI != null)
-                {
-                    sheepAI.normalSpeed = originalSpeed;
-                }
+                SheepAI ai = pair.Key.GetComponent<SheepAI>();
+                if (ai != null) ai.normalSpeed = pair.Value;
             }
         }
-
-        howlOfFearCoroutine = null;
+        _howlOfFearCoroutine = null;
     }
 }

@@ -18,7 +18,7 @@ public class LevelGameManager : MonoBehaviour
     {
         // Di sini Anda bisa menampilkan UI kemenangan
         // Contoh sederhana: langsung kembali ke main menu dengan membuka panel levels
-        LoadMainMenu loadMenu = FindObjectOfType<LoadMainMenu>();
+        LoadMainMenu loadMenu = FindFirstObjectByType<LoadMainMenu>();
         if (loadMenu != null)
         {
             loadMenu.LoadMainMenuWithLevelsPanel();
@@ -45,7 +45,7 @@ public class LevelGameManager : MonoBehaviour
         LoadMainMenu.CompleteLevel(currentLevelId);
 
         // 2. Pindah ke MainMenu
-        LoadMainMenu loadMenu = FindObjectOfType<LoadMainMenu>();
+        LoadMainMenu loadMenu = FindFirstObjectByType<LoadMainMenu>();
         if (loadMenu != null)
         {
             loadMenu.LoadMainMenuWithLevelsPanel();

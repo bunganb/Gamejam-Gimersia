@@ -1,5 +1,11 @@
-using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
+
+public enum SheepState
+{
+    Eating,
+    Panicking
+}
 
 [RequireComponent(typeof(Sheep))]
 public class SheepAI : MonoBehaviour
@@ -10,86 +16,77 @@ public class SheepAI : MonoBehaviour
     public float panicSpeed = 2f;
     public float panicDuration = 3f;
     public float foodSearchRadius = 15f;
-    
+
     [Header("References")]
     public Transform wolfTransform;
     public LayerMask nodeLayer;
-    
+
     [Header("Debug")]
     public bool showDebugLogs = false;
-    
-    private Sheep sheep;
-    private Movement movement;
-    private SheepState currentState;
-    private float panicTimer;
-    private Vector2 currentDirection;
-    private Transform targetFood;
-    
-    private int foodLayerIndex;
-    private int wolfLayerIndex;
-    
-    private float foodSearchTimer = 0f;
-    private float foodSearchInterval = 0.5f;
-    
-    private Vector3 lastNodePosition;
-    private const float NEW_NODE_THRESHOLD = 0.8f;
-    private bool isFirstDecision = true;
-    
-    // Track recent nodes to prevent immediate ping-pong
-    private Queue<Vector3> recentNodes = new Queue<Vector3>();
-    private const int MAX_RECENT_NODES = 3;
-    
+
+    private Sheep _sheep;
+    private Movement _movement;
+    private SheepState _currentState;
+    private float _panicTimer;
+    private Vector2 _currentDirection;
+    private Transform _targetFood;
+
+    private int _foodLayer;
+    private int _wolfLayer;
+
+    private float _foodSearchTimer;
+    private const float FoodSearchInterval = 0.5f;
+
+    private Vector3 _lastNodePosition;
+    private const float NewNodeThreshold = 0.8f;
+    private bool _isFirstDecision = true;
+
+    private Queue<Vector3> _recentNodes = new Queue<Vector3>();
+    private const int MaxRecentNodes = 3;
+
     private void Awake()
     {
-        sheep = GetComponent<Sheep>();
-        movement = GetComponent<Movement>();
-        currentState = SheepState.Eating;
-        
-        foodLayerIndex = LayerMask.NameToLayer("Food");
-        wolfLayerIndex = LayerMask.NameToLayer("Wolf");
+        _sheep = GetComponent<Sheep>();
+        _movement = GetComponent<Movement>();
+        _currentState = SheepState.Eating;
+
+        _foodLayer = LayerMask.NameToLayer("Food");
+        _wolfLayer = LayerMask.NameToLayer("Wolf");
     }
-    
+
     private void Start()
     {
-        // Auto-find wolf
+        // Cari wolf berdasarkan layer
         if (wolfTransform == null)
         {
-            GameObject[] allObjects = FindObjectsOfType<GameObject>();
-            foreach (GameObject obj in allObjects)
-            {
-                if (obj.layer == wolfLayerIndex)
-                {
-                    wolfTransform = obj.transform;
-                    if (showDebugLogs)
-                        Debug.Log($"{gameObject.name} found wolf: {obj.name}");
-                    break;
-                }
-            }
+            // Gunakan FindObjectsByType untuk performa (Unity 2022+)
+            // Jika tidak tersedia, fallback ke FindObjectsOfType
+            Wolf[] wolves = FindObjectsByType<Wolf>(FindObjectsSortMode.None);
+            if (wolves.Length > 0) wolfTransform = wolves[0].transform;
         }
-        
-        movement.speedMultiplier = normalSpeed;
-        
-        // Initialize direction
+
+        _movement.speedMultiplier = normalSpeed;
+
+        // Inisialisasi arah acak
         Vector2[] directions = { Vector2.up, Vector2.down, Vector2.left, Vector2.right };
-        currentDirection = directions[Random.Range(0, directions.Length)];
-        movement.SetDirection(currentDirection);
-        
+        _currentDirection = directions[Random.Range(0, directions.Length)];
+        _movement.SetDirection(_currentDirection);
+
         if (showDebugLogs)
-            Debug.Log($"{gameObject.name} Initial direction: {currentDirection}");
-        
-        lastNodePosition = transform.position + new Vector3(999f, 999f, 0f);
-        
-        // Find initial food
-        targetFood = FindNearestFood();
-        if (showDebugLogs && targetFood != null)
-            Debug.Log($"{gameObject.name} initial target: {targetFood.name}");
+            Debug.Log($"{name} Initial direction: {_currentDirection}");
+
+        _lastNodePosition = transform.position + Vector3.one * 999f; // offset besar
+        _targetFood = FindNearestFood();
+
+        if (showDebugLogs && _targetFood != null)
+            Debug.Log($"{name} initial target: {_targetFood.name}");
     }
-    
+
     private void Update()
     {
         CheckForWolf();
-        
-        switch (currentState)
+
+        switch (_currentState)
         {
             case SheepState.Eating:
                 EatingBehavior();
@@ -99,464 +96,332 @@ public class SheepAI : MonoBehaviour
                 break;
         }
     }
-    
+
     private void CheckForWolf()
     {
         if (wolfTransform == null) return;
-        
-        float distanceToWolf = Vector2.Distance(transform.position, wolfTransform.position);
-        
-        if (distanceToWolf <= detectionRange)
+
+        float dist = Vector2.Distance(transform.position, wolfTransform.position);
+        if (dist <= detectionRange)
         {
-            if (currentState != SheepState.Panicking)
-            {
+            if (_currentState != SheepState.Panicking)
                 EnterPanicState();
-            }
         }
         else
         {
-            if (currentState == SheepState.Panicking)
+            if (_currentState == SheepState.Panicking)
             {
-                panicTimer -= Time.deltaTime;
-                if (panicTimer <= 0f)
-                {
+                _panicTimer -= Time.deltaTime;
+                if (_panicTimer <= 0f)
                     EnterEatingState();
-                }
             }
         }
     }
-    
+
     private void EnterPanicState()
     {
-        currentState = SheepState.Panicking;
-        panicTimer = panicDuration;
-        movement.speedMultiplier = panicSpeed;
+        _currentState = SheepState.Panicking;
+        _panicTimer = panicDuration;
+        _movement.speedMultiplier = panicSpeed;
         AudioManager.Instance.PlaySFX("Sheep Screaming");
-        // Clear recent nodes when panicking (can revisit when escaping)
-        recentNodes.Clear();
-        
+        _recentNodes.Clear();
+
         if (showDebugLogs)
-            Debug.Log($"{gameObject.name} is PANICKING!");
-        
-        // IMMEDIATELY change direction away from wolf
+            Debug.Log($"{name} is PANICKING!");
+
         if (wolfTransform != null)
         {
-            Vector2 fleeDirection = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
-            Vector2 bestFleeDir = GetBestCardinalDirection(fleeDirection);
-            
-            if (!movement.Occupied(bestFleeDir))
+            Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
+            Vector2 bestDir = GetBestCardinalDirection(fleeDir);
+
+            if (!_movement.Occupied(bestDir))
             {
-                movement.SetDirection(bestFleeDir);
-                currentDirection = bestFleeDir;
-                
-                if (showDebugLogs)
-                    Debug.Log($"{gameObject.name} IMMEDIATELY fleeing: {bestFleeDir}");
+                _movement.SetDirection(bestDir);
+                _currentDirection = bestDir;
             }
             else
             {
-                // Try alternative directions
-                Vector2[] alternatives = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
+                // Cari alternatif yang tidak terhalang
+                Vector2[] alts = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
                 float bestScore = float.MinValue;
-                Vector2 bestAvailable = currentDirection;
-                
-                foreach (Vector2 dir in alternatives)
+                Vector2 bestAlt = _currentDirection;
+                foreach (Vector2 dir in alts)
                 {
-                    if (!movement.Occupied(dir))
+                    if (!_movement.Occupied(dir))
                     {
-                        float score = Vector2.Dot(dir, fleeDirection);
+                        float score = Vector2.Dot(dir, fleeDir);
                         if (score > bestScore)
                         {
                             bestScore = score;
-                            bestAvailable = dir;
+                            bestAlt = dir;
                         }
                     }
                 }
-                
-                movement.SetDirection(bestAvailable);
-                currentDirection = bestAvailable;
-                
-                if (showDebugLogs)
-                    Debug.Log($"{gameObject.name} Fleeing (alternative): {bestAvailable}");
+                _movement.SetDirection(bestAlt);
+                _currentDirection = bestAlt;
             }
         }
     }
-    
+
     private void EnterEatingState()
     {
-        currentState = SheepState.Eating;
-        movement.speedMultiplier = normalSpeed;
-        targetFood = null;
-        
+        _currentState = SheepState.Eating;
+        _movement.speedMultiplier = normalSpeed;
+        _targetFood = null;
         if (showDebugLogs)
-            Debug.Log($"{gameObject.name} is back to EATING");
+            Debug.Log($"{name} is back to EATING");
     }
-    
+
     private void EatingBehavior()
     {
-        // Update food search timer
-        foodSearchTimer -= Time.deltaTime;
-        
-        if (foodSearchTimer <= 0f || targetFood == null || !targetFood.gameObject.activeSelf)
+        // Update target makanan secara periodik
+        _foodSearchTimer -= Time.deltaTime;
+        if (_foodSearchTimer <= 0f || _targetFood == null || !_targetFood.gameObject.activeSelf)
         {
-            Transform newTarget = FindNearestFood();
-            
-            if (newTarget != targetFood)
-            {
-                targetFood = newTarget;
-                if (showDebugLogs && targetFood != null)
-                    Debug.Log($"{gameObject.name} new target: {targetFood.name}");
-            }
-            
-            foodSearchTimer = foodSearchInterval;
+            _targetFood = FindNearestFood();
+            _foodSearchTimer = FoodSearchInterval;
         }
-        
-        // ONLY make decisions at nodes
-        if (IsAtNode())
+
+        // Hanya ambil keputusan di node
+        if (!IsAtNode()) return;
+
+        float distFromLastNode = Vector3.Distance(transform.position, _lastNodePosition);
+        if (!_isFirstDecision && distFromLastNode < NewNodeThreshold) return;
+
+        Node node = GetCurrentNode();
+        if (node == null || node.availableDirections.Count == 0) return;
+
+        Vector2 newDir = ChooseBestDirectionToFood(node);
+        if (newDir != Vector2.zero)
         {
-            float distanceFromLastNode = Vector3.Distance(transform.position, lastNodePosition);
-            
-            if (isFirstDecision || distanceFromLastNode > NEW_NODE_THRESHOLD)
-            {
-                Node node = GetCurrentNode();
-                if (node != null && node.availableDirections.Count > 0)
-                {
-                    Vector2 newDirection = ChooseBestDirectionToFood(node);
-                    
-                    if (newDirection != Vector2.zero)
-                    {
-                        movement.SetDirection(newDirection);
-                        currentDirection = newDirection;
-                        
-                        // Add this node to recent nodes history
-                        AddRecentNode(transform.position);
-                        
-                        lastNodePosition = transform.position;
-                        isFirstDecision = false;
-                        
-                        if (showDebugLogs)
-                            Debug.Log($"{gameObject.name} chose: {newDirection}, recent nodes: {recentNodes.Count}");
-                    }
-                }
-            }
+            _movement.SetDirection(newDir);
+            _currentDirection = newDir;
+            AddRecentNode(transform.position);
+            _lastNodePosition = transform.position;
+            _isFirstDecision = false;
+            if (showDebugLogs)
+                Debug.Log($"{name} chose: {newDir}");
         }
     }
-    
+
     private void PanicBehavior()
     {
-        // When panicking, CAN go backward to escape!
-        if (IsAtNode() && wolfTransform != null)
+        if (!IsAtNode() || wolfTransform == null) return;
+
+        float distFromLastNode = Vector3.Distance(transform.position, _lastNodePosition);
+        if (distFromLastNode < NewNodeThreshold) return;
+
+        Node node = GetCurrentNode();
+        if (node == null || node.availableDirections.Count == 0) return;
+
+        Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
+        Vector2 newDir = ChooseFleeDirection(node, fleeDir);
+        if (newDir != Vector2.zero)
         {
-            float distanceFromLastNode = Vector3.Distance(transform.position, lastNodePosition);
-            
-            if (distanceFromLastNode > NEW_NODE_THRESHOLD)
-            {
-                Node node = GetCurrentNode();
-                if (node != null && node.availableDirections.Count > 0)
-                {
-                    Vector2 fleeDirection = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
-                    Vector2 newDirection = ChooseFleeDirection(node, fleeDirection);
-                    
-                    if (newDirection != Vector2.zero)
-                    {
-                        movement.SetDirection(newDirection);
-                        currentDirection = newDirection;
-                        lastNodePosition = transform.position;
-                        
-                        if (showDebugLogs)
-                            Debug.Log($"{gameObject.name} fleeing at node: {newDirection}");
-                    }
-                }
-            }
+            _movement.SetDirection(newDir);
+            _currentDirection = newDir;
+            _lastNodePosition = transform.position;
+            if (showDebugLogs)
+                Debug.Log($"{name} fleeing at node: {newDir}");
         }
     }
-    
-    private void AddRecentNode(Vector3 nodePosition)
+
+    private void AddRecentNode(Vector3 pos)
     {
-        recentNodes.Enqueue(nodePosition);
-        
-        // Keep only last N nodes
-        while (recentNodes.Count > MAX_RECENT_NODES)
-        {
-            recentNodes.Dequeue();
-        }
+        _recentNodes.Enqueue(pos);
+        while (_recentNodes.Count > MaxRecentNodes)
+            _recentNodes.Dequeue();
     }
-    
-    private bool IsRecentNode(Vector3 position)
+
+    private bool IsRecentNode(Vector3 pos)
     {
-        foreach (Vector3 recentNode in recentNodes)
-        {
-            if (Vector3.Distance(position, recentNode) < 0.5f)
-            {
-                return true;
-            }
-        }
+        foreach (Vector3 p in _recentNodes)
+            if (Vector3.Distance(pos, p) < 0.5f) return true;
         return false;
     }
-    
+
     private Vector2 ChooseBestDirectionToFood(Node node)
     {
-        // Get forward directions (NO BACKWARD in eating state)
-        List<Vector2> forwardDirections = GetForwardDirections(node);
-        
-        // If no forward directions (dead end), allow any direction
-        if (forwardDirections.Count == 0)
+        var forwardDirs = GetForwardDirections(node);
+        if (forwardDirs.Count == 0)
         {
-            if (showDebugLogs)
-                Debug.Log($"{gameObject.name} DEAD END - turning around");
-            
-            // Clear recent nodes at dead end
-            recentNodes.Clear();
+            if (showDebugLogs) Debug.Log($"{name} DEAD END - turning around");
+            _recentNodes.Clear();
             return node.availableDirections[Random.Range(0, node.availableDirections.Count)];
         }
-        
-        // Score each forward direction
-        Vector2 bestDirection = forwardDirections[0];
+
+        Vector2 bestDir = forwardDirs[0];
         float bestScore = float.MinValue;
-        
-        foreach (Vector2 direction in forwardDirections)
+
+        foreach (Vector2 dir in forwardDirs)
         {
             float score = 0f;
-            
-            // Check where this direction would lead
-            Vector3 potentialPosition = node.transform.position + (Vector3)(direction * 2f);
-            
-            // HUGE penalty for directions leading to recent nodes
-            if (IsRecentNode(potentialPosition))
+            Vector3 potentialPos = node.transform.position + (Vector3)(dir * 2f);
+
+            if (IsRecentNode(potentialPos))
+                score -= 100f;
+
+            score += FoodBonus(dir, node.transform.position) * 10f;
+
+            if (_targetFood != null)
             {
-                score -= 100f; // Massive penalty to prevent ping-pong
-                if (showDebugLogs)
-                    Debug.Log($"  {direction}: RECENT NODE PENALTY!");
+                Vector2 toTarget = ((Vector2)_targetFood.position - (Vector2)node.transform.position).normalized;
+                score += Vector2.Dot(dir, toTarget) * 5f;
             }
-            
-            // Factor 1: Food bonus (HIGHEST PRIORITY - look for food in this direction)
-            score += FoodBonus(direction, node.transform.position) * 10.0f;
-            
-            // Factor 2: Target food alignment (if we have a target) - ALSO HIGH PRIORITY
-            if (targetFood != null)
-            {
-                Vector2 toTarget = ((Vector2)targetFood.position - (Vector2)node.transform.position).normalized;
-                float alignment = Vector2.Dot(direction, toTarget);
-                score += alignment * 5.0f;
-            }
-            
-            // Factor 3: Avoid wolf direction (small penalty)
-            score -= WolfPenalty(direction) * 0.5f;
-            
-            // Factor 4: Small bonus for continuing straight (smooth movement)
-            if (direction == currentDirection)
-            {
+
+            score -= WolfPenalty(dir) * 0.5f;
+
+            if (dir == _currentDirection)
                 score += 0.3f;
-            }
-            
-            if (showDebugLogs)
-                Debug.Log($"  {direction}: score = {score:F2}");
-            
+
             if (score > bestScore)
             {
                 bestScore = score;
-                bestDirection = direction;
+                bestDir = dir;
             }
         }
-        
-        return bestDirection;
+        return bestDir;
     }
-    
+
     private List<Vector2> GetForwardDirections(Node node)
     {
-        // In eating state: BLOCK BACKWARD
-        List<Vector2> forwardDirections = new List<Vector2>();
-        Vector2 backward = -currentDirection;
-        
-        foreach (Vector2 direction in node.availableDirections)
-        {
-            if (direction != backward)
-            {
-                forwardDirections.Add(direction);
-            }
-        }
-        
-        return forwardDirections;
+        List<Vector2> forward = new List<Vector2>();
+        Vector2 backward = -_currentDirection;
+        foreach (Vector2 dir in node.availableDirections)
+            if (dir != backward)
+                forward.Add(dir);
+        return forward;
     }
-    
-    private Vector2 ChooseFleeDirection(Node node, Vector2 fleeDirection)
+
+    private Vector2 ChooseFleeDirection(Node node, Vector2 fleeDir)
     {
-        // In panic state: CAN go any direction (including backward)
-        Vector2 bestDirection = node.availableDirections[0];
+        Vector2 bestDir = node.availableDirections[0];
         float bestScore = float.MinValue;
-        
-        foreach (Vector2 direction in node.availableDirections)
+        foreach (Vector2 dir in node.availableDirections)
         {
-            // Score based on how well it points away from wolf
-            float score = Vector2.Dot(direction, fleeDirection);
-            
-            // Big penalty if going toward wolf
-            score -= WolfPenalty(direction) * 3.0f;
-            
+            float score = Vector2.Dot(dir, fleeDir);
+            score -= WolfPenalty(dir) * 3.0f;
             if (score > bestScore)
             {
                 bestScore = score;
-                bestDirection = direction;
+                bestDir = dir;
             }
         }
-        
-        return bestDirection;
+        return bestDir;
     }
-    
-    private float FoodBonus(Vector2 direction, Vector3 fromPosition)
+
+    private float FoodBonus(Vector2 dir, Vector3 fromPos)
     {
         if (GameManager.Instance == null || GameManager.Instance.foods == null)
             return 0f;
-        
+
         float bonus = 0f;
-        
-        // Check food in this direction (within a cone)
         foreach (Transform food in GameManager.Instance.foods)
         {
             if (!food.gameObject.activeSelf) continue;
-            
-            Vector2 toFood = ((Vector2)food.position - (Vector2)fromPosition).normalized;
-            float alignment = Vector2.Dot(direction, toFood);
-            
-            // Only count food that's in this direction (stricter cone)
-            if (alignment > 0.5f) // 60 degree cone (stricter)
+
+            Vector2 toFood = ((Vector2)food.position - (Vector2)fromPos).normalized;
+            float alignment = Vector2.Dot(dir, toFood);
+            if (alignment > 0.5f) // cone 60°
             {
-                float distance = Vector2.Distance(fromPosition, food.position);
-                
-                // Closer food = higher bonus
-                if (distance < foodSearchRadius)
+                float dist = Vector2.Distance(fromPos, food.position);
+                if (dist < foodSearchRadius)
                 {
-                    float distanceBonus = (1f - (distance / foodSearchRadius));
-                    bonus += alignment * distanceBonus;
+                    float distBonus = 1f - (dist / foodSearchRadius);
+                    bonus += alignment * distBonus;
                 }
             }
         }
-        
         return bonus;
     }
-    
-    private float WolfPenalty(Vector2 direction)
+
+    private float WolfPenalty(Vector2 dir)
     {
-        if (wolfTransform == null) 
-            return 0f;
-        
+        if (wolfTransform == null) return 0f;
         Vector2 toWolf = ((Vector2)wolfTransform.position - (Vector2)transform.position).normalized;
-        float dot = Vector2.Dot(direction, toWolf);
-        
-        // Only penalize if going toward wolf
-        if (dot <= 0f)
-            return 0f;
-        
-        return dot;
+        float dot = Vector2.Dot(dir, toWolf);
+        return dot > 0 ? dot : 0f;
     }
-    
-    private Vector2 GetBestCardinalDirection(Vector2 targetDirection)
+
+    private Vector2 GetBestCardinalDirection(Vector2 target)
     {
         Vector2[] cardinals = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
         Vector2 best = cardinals[0];
         float bestDot = float.MinValue;
-        
-        foreach (Vector2 cardinal in cardinals)
+        foreach (Vector2 d in cardinals)
         {
-            float dot = Vector2.Dot(cardinal, targetDirection);
+            float dot = Vector2.Dot(d, target);
             if (dot > bestDot)
             {
                 bestDot = dot;
-                best = cardinal;
+                best = d;
             }
         }
-        
         return best;
     }
-    
+
     private Transform FindNearestFood()
     {
+        if (GameManager.Instance == null || GameManager.Instance.foods == null)
+            return null;
+
         Transform nearest = null;
-        float minDistance = float.MaxValue;
-        
-        if (GameManager.Instance != null && GameManager.Instance.foods != null)
+        float minDist = float.MaxValue;
+        foreach (Transform food in GameManager.Instance.foods)
         {
-            foreach (Transform food in GameManager.Instance.foods)
+            if (!food.gameObject.activeSelf) continue;
+            if (food.gameObject.layer != _foodLayer) continue;
+
+            float dist = Vector2.Distance(transform.position, food.position);
+            if (dist < minDist && dist < foodSearchRadius)
             {
-                if (food.gameObject.activeSelf && food.gameObject.layer == foodLayerIndex)
-                {
-                    float distance = Vector2.Distance(transform.position, food.position);
-                    
-                    if (distance < minDistance && distance < foodSearchRadius)
-                    {
-                        minDistance = distance;
-                        nearest = food;
-                    }
-                }
-            }
-            
-            return nearest;
-        }
-        
-        // Fallback
-        GameObject[] allObjects = FindObjectsOfType<GameObject>();
-        
-        foreach (GameObject obj in allObjects)
-        {
-            if (obj.layer == foodLayerIndex && obj.activeSelf)
-            {
-                float distance = Vector2.Distance(transform.position, obj.transform.position);
-                
-                if (distance < minDistance && distance < foodSearchRadius)
-                {
-                    minDistance = distance;
-                    nearest = obj.transform;
-                }
+                minDist = dist;
+                nearest = food;
             }
         }
-        
         return nearest;
     }
-    
+
     private bool IsAtNode()
     {
         Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 0.4f, nodeLayer);
         return hits.Length > 0;
     }
-    
+
     private Node GetCurrentNode()
     {
         Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 0.4f, nodeLayer);
         if (hits.Length > 0)
-        {
-            Node node = hits[0].GetComponent<Node>();
-            return node;
-        }
+            return hits[0].GetComponent<Node>();
         return null;
     }
-    
+
     private void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRange);
-        
-        // Draw recent nodes
-        if (recentNodes != null)
+
+        if (_recentNodes != null)
         {
-            foreach (Vector3 recentNode in recentNodes)
+            foreach (Vector3 pos in _recentNodes)
             {
                 Gizmos.color = Color.red;
-                Gizmos.DrawWireSphere(recentNode, 0.3f);
+                Gizmos.DrawWireSphere(pos, 0.3f);
             }
         }
-        
-        if (targetFood != null && currentState == SheepState.Eating)
+
+        if (_targetFood != null && _currentState == SheepState.Eating)
         {
             Gizmos.color = Color.green;
-            Gizmos.DrawLine(transform.position, targetFood.position);
-            
+            Gizmos.DrawLine(transform.position, _targetFood.position);
             Gizmos.color = Color.cyan;
-            Gizmos.DrawWireSphere(targetFood.position, 0.5f);
+            Gizmos.DrawWireSphere(_targetFood.position, 0.5f);
         }
-        
+
         Gizmos.color = Color.blue;
-        Gizmos.DrawRay(transform.position, currentDirection * 1.5f);
-        
-        if (wolfTransform != null && currentState == SheepState.Panicking)
+        Gizmos.DrawRay(transform.position, _currentDirection * 1.5f);
+
+        if (wolfTransform != null && _currentState == SheepState.Panicking)
         {
             Gizmos.color = Color.red;
             Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
