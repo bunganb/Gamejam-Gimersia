@@ -1,5 +1,4 @@
-﻿// Wolf.cs
-using UnityEngine;
+﻿using UnityEngine;
 
 [RequireComponent(typeof(Movement))]
 public class Wolf : MonoBehaviour

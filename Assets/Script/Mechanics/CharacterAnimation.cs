@@ -13,8 +13,7 @@ public class CharacterAnimation : MonoBehaviour
     private void Awake()
     {
         animator = GetComponent<Animator>();
-        // Coba cari di GameObject yang sama terlebih dahulu
-        movement = GetComponent<Movement>();
+        movement = GetComponent<Movement>(); // Cari di GameObject yang sama
         if (movement == null)
             movement = GetComponentInParent<Movement>(); // fallback
 
