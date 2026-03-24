@@ -7,7 +7,7 @@ public enum SheepState
     Panicking
 }
 
-[RequireComponent(typeof(Sheep), typeof(Movement))]
+[RequireComponent(typeof(Sheep))]
 public class SheepAI : MonoBehaviour
 {
     [Header("AI Settings")]
@@ -202,14 +202,6 @@ public class SheepAI : MonoBehaviour
             if (showDebugLogs)
                 Debug.Log($"{name} chose: {newDir}");
         }
-
-        _currentDirection = freeDirs[Random.Range(0, freeDirs.Count)];
-        _movement.SetDirection(_currentDirection, forced: true);
-        _targetFood = FindNearestFood();
-
-        Debug.Log($"[SheepAI:{name}] ✅ Retry berhasil — direction: {_currentDirection}");
-
-        StartCoroutine(CheckVelocityAfterStart());
     }
 
     private void PanicBehavior()
@@ -287,12 +279,6 @@ public class SheepAI : MonoBehaviour
                 bestScore = score;
                 bestDir = dir;
             }
-
-            score -= WolfPenalty(dir) * 8f;
-
-            if (dir == _currentDirection) score += 0.3f;
-
-            if (score > bestScore) { bestScore = score; best = dir; }
         }
         return bestDir;
     }
@@ -336,7 +322,7 @@ public class SheepAI : MonoBehaviour
 
             Vector2 toFood = ((Vector2)food.position - (Vector2)fromPos).normalized;
             float alignment = Vector2.Dot(dir, toFood);
-            if (alignment > 0.5f) // cone 60�
+            if (alignment > 0.5f) // cone 60°
             {
                 float dist = Vector2.Distance(fromPos, food.position);
                 if (dist < foodSearchRadius)
@@ -344,74 +330,6 @@ public class SheepAI : MonoBehaviour
                     float distBonus = 1f - (dist / foodSearchRadius);
                     bonus += alignment * distBonus;
                 }
-            }
-
-            if (!found)
-                Debug.LogError($"[SheepAI:{name}] ❌ Semua offset blocked! " +
-                               $"Pindahkan posisi spawn secara manual di Inspector.");
-        }
-
-        transform.position = new Vector3(snapped.x, snapped.y, 0);
-        _movement.Rb.position = snapped;
-        Physics2D.SyncTransforms();
-
-        Debug.Log($"[SheepAI:{name}] 📌 Snap final → {snapped}");
-    }
-
-    private bool IsPositionBlocked(Vector2 pos)
-    {
-        Collider2D hit = Physics2D.OverlapCircle(pos, 0.2f, _movement.obstacleLayer);
-        return hit != null;
-    }
-
-    private void UpdateFoodsCache()
-    {
-        _activeFoods.Clear();
-        if (GameManager.Instance?.foodsParent == null)
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ foodsParent null!");
-            return;
-        }
-
-        foreach (Transform food in GameManager.Instance.foodsParent)
-            if (food.gameObject.activeSelf)
-                _activeFoods.Add(food);
-
-        Debug.Log($"[SheepAI:{name}] ✅ Foods cached: {_activeFoods.Count}");
-    }
-
-    private void OnFoodEaten(Transform food)
-    {
-        _activeFoods.Remove(food);
-        if (_targetFood == food) _targetFood = null;
-    }
-
-    private Transform FindNearestFood()
-    {
-        Transform nearest = null;
-        float minDist = float.MaxValue;
-
-        foreach (Transform food in _activeFoods)
-        {
-            float d = Vector2.Distance(transform.position, food.position);
-            if (d < minDist && d < foodSearchRadius) { minDist = d; nearest = food; }
-        }
-
-        return nearest;
-    }
-
-    private float FoodBonus(Vector2 dir, Vector3 from)
-    {
-        float bonus = 0f;
-        foreach (Transform food in _activeFoods)
-        {
-            Vector2 toFood = ((Vector2)food.position - (Vector2)from).normalized;
-            float align = Vector2.Dot(dir, toFood);
-            if (align > 0.5f)
-            {
-                float dist = Vector2.Distance(from, food.position);
-                if (dist < foodSearchRadius)
-                    bonus += align * (1f - dist / foodSearchRadius);
             }
         }
         return bonus;
@@ -466,8 +384,8 @@ public class SheepAI : MonoBehaviour
 
     private bool IsAtNode()
     {
-        _recentNodes.Enqueue(node);
-        while (_recentNodes.Count > MAX_RECENT) _recentNodes.Dequeue();
+        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 0.4f, nodeLayer);
+        return hits.Length > 0;
     }
 
     private Node GetCurrentNode()
@@ -506,9 +424,8 @@ public class SheepAI : MonoBehaviour
         if (wolfTransform != null && _currentState == SheepState.Panicking)
         {
             Gizmos.color = Color.red;
-            Vector2 flee = ((Vector2)transform.position
-                         - (Vector2)wolfTransform.position).normalized;
-            Gizmos.DrawRay(transform.position, flee * 3f);
+            Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
+            Gizmos.DrawRay(transform.position, fleeDir * 2f);
         }
     }
 }

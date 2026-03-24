@@ -1,16 +1,16 @@
-﻿// Sheep.cs
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 
+[DefaultExecutionOrder(-10)]
+[RequireComponent(typeof(Movement))]
 public class Sheep : MonoBehaviour
 {
     public Movement Movement { get; private set; }
     public int points = 10;
     public bool IsDead { get; private set; }
 
-    [Header("Colliders")]
-    [SerializeField] private Collider2D physicsCollider;
-    [SerializeField] private Collider2D triggerCollider;
+    [Header("Debug")]
+    public bool showDebugLogs = false;
 
     private Animator _animator;
     private Collider2D _collider;
@@ -53,11 +53,13 @@ public class Sheep : MonoBehaviour
         int otherLayer = other.gameObject.layer;
         if (otherLayer == LayerMask.NameToLayer("Food"))
         {
+            Debug.Log($"Sheep collided with Food: {other.gameObject.name}");
             Food food = other.GetComponent<Food>();
             if (food != null) food.Eat();
         }
         else if (otherLayer == LayerMask.NameToLayer("Wolf"))
         {
+            Debug.Log($"Sheep collided with Wolf: {other.gameObject.name}");
             HandleWolfContact();
         }
     }
