@@ -13,28 +13,16 @@ public class Movement : MonoBehaviour
     public LayerMask nodeLayer;
     public bool freeMovement = false;
 
-    [Header("Collision Settings")]
-    [SerializeField] private float nodeCheckRadius = 0.3f;
-    [SerializeField] private float castSize = 0.4f;
-    [SerializeField] private float castDistance = 0.5f;
+    [Header("Cooling Settings")]
+    [Tooltip("Ukuran box untuk deteksi rintangan (lebar/Tinggi)")]
+    [SerializeField] private float boxCastSize = 0.75f;
+    [Tooltip("Jarak deteksi rintangan ke depan")]
+    [SerializeField] private float boxCastDistance = 1.5f;
 
-    public Rigidbody2D Rb { get; private set; }
-    public Vector2 Direction { get; private set; }
-    public Vector2 NextDirection { get; private set; }
-    public Vector3 StartingPosition { get; private set; }
-    public bool IsAtNode { get; private set; }
-
-    public UnityEvent<Vector2> OnDirectionChanged;
-    public UnityEvent OnEnteredNode;
-    public UnityEvent OnExitedNode;
-
-    private Collider2D _col;
-    private Node _currentNode;
-    private bool _hasLoggedFirstMove = false;
-
-    // ─────────────────────────────────────────────
-    //  LIFECYCLE
-    // ─────────────────────────────────────────────
+    public Rigidbody2D rb { get; private set; }
+    public Vector2 direction { get; private set; }
+    public Vector2 nextDirection { get; private set; }
+    public Vector3 startingPosition { get; private set; }
 
     private void Awake()
     {
@@ -55,10 +43,9 @@ public class Movement : MonoBehaviour
     public void ResetState()
     {
         speedMultiplier = 1f;
-        NextDirection = Vector2.zero;
-        _hasLoggedFirstMove = false;
-        transform.position = StartingPosition;
-        Rb.linearVelocity = Vector2.zero;
+        direction = initialDirection;
+        nextDirection = Vector2.zero;
+        transform.position = startingPosition;
         enabled = true;
 
         Direction = initialDirection;
@@ -86,9 +73,8 @@ public class Movement : MonoBehaviour
 
     private void Update()
     {
-        UpdateNodeStatus();
-
-        if (!freeMovement && IsAtNode && NextDirection != Vector2.zero)
+        // jika ada arah yang diinginkan, coba set arah tersebut
+        if (nextDirection != Vector2.zero)
         {
             if (!Occupied(NextDirection))
             {
@@ -105,77 +91,8 @@ public class Movement : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (Direction == Vector2.zero)
-        {
-            Rb.linearVelocity = Vector2.zero;
-            return;
-        }
-
-        Vector2 before = Rb.position;
-        Vector2 targetVel = Direction * (speed * speedMultiplier);
-        Rb.linearVelocity = targetVel;
-
-        if (!_hasLoggedFirstMove)
-        {
-            _hasLoggedFirstMove = true;
-            Debug.Log($"[Movement:{name}] 🏃 Mulai bergerak — " +
-                      $"velocity: {targetVel}, pos: {transform.position}");
-        }
-
-        if (Time.frameCount % 60 == 0 && targetVel.magnitude > 0.01f)
-        {
-            Vector2 after = Rb.position;
-            if (Vector2.Distance(before, after) < 0.001f)
-            {
-                // ✅ Cek SEMUA layer tanpa filter — temukan apa yang sebenarnya memblokir
-                RaycastHit2D[] allHits = Physics2D.BoxCastAll(
-                    transform.position, Vector2.one * castSize,
-                    0f, Direction, castDistance);
-
-                if (allHits.Length > 0)
-                {
-                    string blockLog = "";
-                    foreach (var h in allHits)
-                    {
-                        bool inObstacleLayer = (obstacleLayer.value & (1 << h.collider.gameObject.layer)) != 0;
-                        blockLog += $"\n  → '{h.collider.name}' " +
-                                    $"layer: '{LayerMask.LayerToName(h.collider.gameObject.layer)}' " +
-                                    $"(index:{h.collider.gameObject.layer}) " +
-                                    $"inObstacleLayer:{inObstacleLayer}";
-                    }
-
-                    Debug.LogError($"[Movement:{name}] 🔴 STUCK! Pemblokir fisik terdeteksi:{blockLog}\n" +
-                                   $"→ Layer yang TIDAK ada di obstacleLayer adalah penyebabnya!\n" +
-                                   $"→ Tambahkan layer tersebut ke obstacleLayer di Inspector,\n" +
-                                   $"  ATAU matikan collision di Physics 2D Layer Matrix.");
-                }
-                else
-                {
-                    // Tidak ada yang terdeteksi BoxCast tapi tetap stuck
-                    // → Cek dengan OverlapCircle radius lebih besar
-                    Collider2D[] nearby = Physics2D.OverlapCircleAll(
-                        transform.position + (Vector3)(Direction * 0.3f), 0.3f);
-
-                    string nearbyLog = "";
-                    foreach (var c in nearby)
-                    {
-                        if (c.gameObject == gameObject) continue; // skip self
-                        nearbyLog += $"\n  → '{c.name}' " +
-                                     $"layer: '{LayerMask.LayerToName(c.gameObject.layer)}' " +
-                                     $"isTrigger: {c.isTrigger}";
-                    }
-
-                    if (nearbyLog != "")
-                        Debug.LogError($"[Movement:{name}] 🔴 STUCK! Collider dekat di arah {Direction}:{nearbyLog}\n" +
-                                       $"→ Matikan collision layer tersebut dengan layer Sheep/Wolf\n" +
-                                       $"  di Edit → Project Settings → Physics 2D → Layer Collision Matrix");
-                    else
-                        Debug.LogError($"[Movement:{name}] 🔴 STUCK! Tidak ada collider terdeteksi.\n" +
-                                       $"→ Kemungkinan Tilemap Composite Collider memblokir.\n" +
-                                       $"→ Cek layer Tilemap dan tambahkan ke obstacleLayer.");
-                }
-            }
-        }
+        Vector2 translation = direction * speed * speedMultiplier * Time.fixedDeltaTime;
+        rb.MovePosition(rb.position + translation);
     }
 
     // ─────────────────────────────────────────────
@@ -184,9 +101,7 @@ public class Movement : MonoBehaviour
 
     public void SetDirection(Vector2 newDirection, bool forced = false)
     {
-        if (newDirection == Vector2.zero) return;
-
-        if (freeMovement)
+        if (forced || !Occupied(direction))
         {
             if (forced || !Occupied(newDirection))
             {
@@ -220,39 +135,8 @@ public class Movement : MonoBehaviour
 
     public bool Occupied(Vector2 direction)
     {
-        if (direction == Vector2.zero) return false;
-
-        // ✅ Cek dengan obstacleLayer yang sudah di-set
-        RaycastHit2D hit = Physics2D.BoxCast(
-            transform.position,
-            Vector2.one * castSize,
-            0f,
-            direction,
-            castDistance,
-            obstacleLayer
-        );
-
-        // ✅ DEBUG SEMENTARA: Cek semua layer tanpa filter
-        RaycastHit2D hitAll = Physics2D.BoxCast(
-            transform.position,
-            Vector2.one * castSize,
-            0f,
-            direction,
-            castDistance
-        );
-
-        // Jika hitAll ada tapi hit tidak ada → layer salah!
-        if (hitAll.collider != null && hit.collider == null)
-        {
-            Debug.LogError($"[Movement:{name}] ⚠️ LAYER MISMATCH arah {direction}!\n" +
-                           $"BoxCast mengenai '{hitAll.collider.name}' " +
-                           $"di layer '{LayerMask.LayerToName(hitAll.collider.gameObject.layer)}' " +
-                           $"(layer index: {hitAll.collider.gameObject.layer})\n" +
-                           $"Tapi obstacleLayer ({obstacleLayer.value}) tidak mendeteksinya!\n" +
-                           $"→ Tambahkan layer '{LayerMask.LayerToName(hitAll.collider.gameObject.layer)}' " +
-                           $"ke obstacleLayer di Inspector Movement!");
-        }
-
+        if(direction == Vector2.zero) return false;
+        RaycastHit2D hit = Physics2D.BoxCast(transform.position, Vector2.one * boxCastSize, 0f, direction, boxCastDistance, obstacleLayer);
         return hit.collider != null;
     }
 

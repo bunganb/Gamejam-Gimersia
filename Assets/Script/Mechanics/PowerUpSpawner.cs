@@ -33,9 +33,8 @@ public class PowerUpSpawner : MonoBehaviour
         }
         else
         {
-            // Fallback: find all nodes in scene using new API (faster with None sorting)
-            Node[] nodes = FindObjectsByType<Node>(FindObjectsSortMode.None);
-            availableNodes.AddRange(nodes);
+            // Fallback: find all nodes in scene
+            availableNodes.AddRange(FindObjectsByType<Node>(FindObjectsSortMode.None));
         }
 
         if (availableNodes.Count == 0)

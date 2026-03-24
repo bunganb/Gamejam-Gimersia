@@ -1,7 +1,11 @@
-﻿// SheepAI.cs
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+
+public enum SheepState
+{
+    Eating,
+    Panicking
+}
 
 [RequireComponent(typeof(Sheep), typeof(Movement))]
 public class SheepAI : MonoBehaviour
@@ -15,371 +19,188 @@ public class SheepAI : MonoBehaviour
 
     [Header("References")]
     public Transform wolfTransform;
+    public LayerMask nodeLayer;
 
     [Header("Debug")]
-    public bool showDebugLogs = true;
+    public bool showDebugLogs = false;
 
     private Sheep _sheep;
     private Movement _movement;
-
-    private enum State { Eating, Panicking }
-    private State _state = State.Eating;
-
+    private SheepState _currentState;
     private float _panicTimer;
     private Vector2 _currentDirection;
     private Transform _targetFood;
+
     private int _foodLayer;
+    private int _wolfLayer;
 
-    private List<Transform> _activeFoods = new();
-    private Queue<Node> _recentNodes = new();
-    private const int MAX_RECENT = 3;
+    private float _foodSearchTimer;
+    private const float FoodSearchInterval = 0.5f;
 
-    private float _debugTimer;
-    private Vector3 _lastPos;
+    private Vector3 _lastNodePosition;
+    private const float NewNodeThreshold = 0.8f;
+    private bool _isFirstDecision = true;
 
-    // ─────────────────────────────────────────────
-    //  LIFECYCLE
-    // ─────────────────────────────────────────────
+    private Queue<Vector3> _recentNodes = new Queue<Vector3>();
+    private const int MaxRecentNodes = 3;
 
     private void Awake()
     {
         _sheep = GetComponent<Sheep>();
         _movement = GetComponent<Movement>();
-        _foodLayer = LayerMask.NameToLayer("Food");
+        _currentState = SheepState.Eating;
 
-        Debug.Log($"[SheepAI:{name}] Awake — " +
-                  $"movement: {(_movement != null ? "✅" : "❌ NULL")}, " +
-                  $"sheep: {(_sheep != null ? "✅" : "❌ NULL")}");
+        _foodLayer = LayerMask.NameToLayer("Food");
+        _wolfLayer = LayerMask.NameToLayer("Wolf");
     }
 
     private void Start()
     {
-        Debug.Log($"[SheepAI:{name}] ===== START BEGIN =====");
-
-        SnapToGrid();
-
-        if (GameManager.Instance != null)
+        // Cari wolf berdasarkan layer
+        if (wolfTransform == null)
         {
-            GameManager.Instance.OnFoodEaten += OnFoodEaten;
-            UpdateFoodsCache();
-            Debug.Log($"[SheepAI:{name}] ✅ Subscribed, foods: {_activeFoods.Count}");
+            // Gunakan FindObjectsByType untuk performa (Unity 2022+)
+            // Jika tidak tersedia, fallback ke FindObjectsOfType
+            Wolf[] wolves = FindObjectsByType<Wolf>(FindObjectsSortMode.None);
+            if (wolves.Length > 0) wolfTransform = wolves[0].transform;
         }
-        else
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ GameManager null di Start!");
-        }
-
-        Wolf wolf = FindFirstObjectByType<Wolf>();
-        if (wolf != null)
-            wolfTransform = wolf.transform;
-        else
-            Debug.LogWarning($"[SheepAI:{name}] ⚠️ Wolf tidak ditemukan!");
 
         _movement.speedMultiplier = normalSpeed;
 
-        // ✅ DEBUG: Cek detail Rigidbody sebelum mulai bergerak
-        Debug.Log($"[SheepAI:{name}] Rigidbody detail — " +
-                  $"bodyType: {_movement.Rb.bodyType}, " +
-                  $"constraints: {_movement.Rb.constraints}, " +
-                  $"isKinematic: {_movement.Rb.isKinematic}, " +
-                  $"gravityScale: {_movement.Rb.gravityScale}, " +
-                  $"mass: {_movement.Rb.mass}, " +
-                  $"linearDamping: {_movement.Rb.linearDamping}");
+        // Inisialisasi arah acak
+        Vector2[] directions = { Vector2.up, Vector2.down, Vector2.left, Vector2.right };
+        _currentDirection = directions[Random.Range(0, directions.Length)];
+        _movement.SetDirection(_currentDirection);
 
-        // ✅ DEBUG: Cek semua collider pada GameObject ini
-        Collider2D[] allCols = GetComponents<Collider2D>();
-        Debug.Log($"[SheepAI:{name}] Colliders ditemukan: {allCols.Length}");
-        foreach (Collider2D c in allCols)
-        {
-            string sizeInfo = c is BoxCollider2D b
-                ? $"Box({b.size.x:F2}x{b.size.y:F2})"
-                : c is CircleCollider2D ci
-                    ? $"Circle(r={ci.radius:F2})"
-                    : c.GetType().Name;
+        if (showDebugLogs)
+            Debug.Log($"{name} Initial direction: {_currentDirection}");
 
-            Debug.Log($"[SheepAI:{name}]   Collider: {sizeInfo}, " +
-                      $"isTrigger: {c.isTrigger}, " +
-                      $"enabled: {c.enabled}, " +
-                      $"offset: {c.offset}");
-        }
-
-        // ✅ DEBUG: Cek overlap obstacle di posisi saat ini
-        Collider2D[] obstacles = Physics2D.OverlapCircleAll(
-            transform.position, 0.4f, _movement.obstacleLayer);
-        if (obstacles.Length > 0)
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ OVERLAP DENGAN OBSTACLE DI POSISI SPAWN!");
-            foreach (Collider2D o in obstacles)
-                Debug.LogError($"[SheepAI:{name}]   → {o.name} " +
-                               $"(layer: {LayerMask.LayerToName(o.gameObject.layer)}, " +
-                               $"pos: {o.transform.position})");
-        }
-        else
-        {
-            Debug.Log($"[SheepAI:{name}] ✅ Tidak ada obstacle overlap di posisi spawn");
-        }
-
-        // Cek 4 arah
-        Vector2[] dirs = { Vector2.up, Vector2.down, Vector2.left, Vector2.right };
-        var freeDirs = new List<Vector2>();
-        string dirLog = "";
-
-        foreach (Vector2 d in dirs)
-        {
-            bool blocked = _movement.Occupied(d);
-            dirLog += $"{DirectionName(d)}={blocked} | ";
-            if (!blocked) freeDirs.Add(d);
-        }
-
-        Debug.Log($"[SheepAI:{name}] Arah tersedia: {freeDirs.Count}/4 — {dirLog}");
-
-        if (freeDirs.Count == 0)
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ Semua arah blocked! " +
-                           $"castSize={_movement.GetType().GetField("castSize", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(_movement)} " +
-                           $"Coba kecilkan Cast Size di Movement Inspector.");
-            StartCoroutine(RetryDirectionAfterDelay());
-            return;
-        }
-
-        _currentDirection = freeDirs[Random.Range(0, freeDirs.Count)];
-        _movement.SetDirection(_currentDirection, forced: true);
-
+        _lastNodePosition = transform.position + Vector3.one * 999f; // offset besar
         _targetFood = FindNearestFood();
-        _lastPos = transform.position;
 
-        Debug.Log($"[SheepAI:{name}] Start — " +
-                  $"direction: {_currentDirection}, " +
-                  $"foods: {_activeFoods.Count}, " +
-                  $"target: {(_targetFood != null ? _targetFood.name : "none")}");
-
-        Debug.Log($"[SheepAI:{name}] ===== START END =====");
-
-        StartCoroutine(CheckVelocityAfterStart());
+        if (showDebugLogs && _targetFood != null)
+            Debug.Log($"{name} initial target: {_targetFood.name}");
     }
-
-    private void OnDestroy()
-    {
-        if (GameManager.Instance != null)
-            GameManager.Instance.OnFoodEaten -= OnFoodEaten;
-    }
-
-    // ─────────────────────────────────────────────
-    //  UPDATE
-    // ─────────────────────────────────────────────
 
     private void Update()
     {
         CheckForWolf();
 
-        switch (_state)
+        switch (_currentState)
         {
-            case State.Eating: EatingBehavior(); break;
-            case State.Panicking: PanicBehavior(); break;
+            case SheepState.Eating:
+                EatingBehavior();
+                break;
+            case SheepState.Panicking:
+                PanicBehavior();
+                break;
         }
-
-        DebugPositionLog();
     }
-
-    // ─────────────────────────────────────────────
-    //  STATE MACHINE
-    // ─────────────────────────────────────────────
 
     private void CheckForWolf()
     {
         if (wolfTransform == null) return;
 
         float dist = Vector2.Distance(transform.position, wolfTransform.position);
-
         if (dist <= detectionRange)
         {
-            if (_state != State.Panicking) EnterPanic();
+            if (_currentState != SheepState.Panicking)
+                EnterPanicState();
         }
-        else if (_state == State.Panicking)
+        else
         {
-            _panicTimer -= Time.deltaTime;
-            if (_panicTimer <= 0f) EnterEating();
+            if (_currentState == SheepState.Panicking)
+            {
+                _panicTimer -= Time.deltaTime;
+                if (_panicTimer <= 0f)
+                    EnterEatingState();
+            }
         }
     }
 
-    private void EnterPanic()
+    private void EnterPanicState()
     {
-        _state = State.Panicking;
+        _currentState = SheepState.Panicking;
         _panicTimer = panicDuration;
         _movement.speedMultiplier = panicSpeed;
+        AudioManager.Instance.PlaySFX("Sheep Screaming");
         _recentNodes.Clear();
 
-        AudioManager.Instance?.PlaySFX("Sheep Screaming");
+        if (showDebugLogs)
+            Debug.Log($"{name} is PANICKING!");
 
         if (wolfTransform != null)
         {
             Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
-            Vector2 bestDir = GetBestCardinal(fleeDir);
+            Vector2 bestDir = GetBestCardinalDirection(fleeDir);
 
             if (!_movement.Occupied(bestDir))
-                _movement.SetDirection(bestDir, forced: true);
+            {
+                _movement.SetDirection(bestDir);
+                _currentDirection = bestDir;
+            }
             else
-                _movement.SetDirection(GetAlternativeFlee(fleeDir), forced: true);
-
-            _currentDirection = _movement.Direction;
+            {
+                // Cari alternatif yang tidak terhalang
+                Vector2[] alts = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
+                float bestScore = float.MinValue;
+                Vector2 bestAlt = _currentDirection;
+                foreach (Vector2 dir in alts)
+                {
+                    if (!_movement.Occupied(dir))
+                    {
+                        float score = Vector2.Dot(dir, fleeDir);
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            bestAlt = dir;
+                        }
+                    }
+                }
+                _movement.SetDirection(bestAlt);
+                _currentDirection = bestAlt;
+            }
         }
-
-        if (showDebugLogs) Debug.Log($"[SheepAI:{name}] 😱 PANIC!");
     }
 
-    private void EnterEating()
+    private void EnterEatingState()
     {
-        _state = State.Eating;
+        _currentState = SheepState.Eating;
         _movement.speedMultiplier = normalSpeed;
         _targetFood = null;
-        if (showDebugLogs) Debug.Log($"[SheepAI:{name}] 🍃 EATING");
+        if (showDebugLogs)
+            Debug.Log($"{name} is back to EATING");
     }
 
     private void EatingBehavior()
     {
-        if (_targetFood == null || !_targetFood.gameObject.activeSelf)
+        // Update target makanan secara periodik
+        _foodSearchTimer -= Time.deltaTime;
+        if (_foodSearchTimer <= 0f || _targetFood == null || !_targetFood.gameObject.activeSelf)
         {
             _targetFood = FindNearestFood();
-            if (showDebugLogs && _targetFood != null)
-                Debug.Log($"[SheepAI:{name}] 🎯 Target: {_targetFood.name}");
+            _foodSearchTimer = FoodSearchInterval;
         }
 
-        if (!_movement.IsAtNode) return;
+        // Hanya ambil keputusan di node
+        if (!IsAtNode()) return;
 
-        Node node = _movement.GetCurrentNode();
+        float distFromLastNode = Vector3.Distance(transform.position, _lastNodePosition);
+        if (!_isFirstDecision && distFromLastNode < NewNodeThreshold) return;
+
+        Node node = GetCurrentNode();
         if (node == null || node.availableDirections.Count == 0) return;
 
-        Vector2 best = ChooseBestToFood(node);
-
-        if (best == _movement.Direction)
+        Vector2 newDir = ChooseBestDirectionToFood(node);
+        if (newDir != Vector2.zero)
         {
-            AddRecentNode(node);
-            return;
-        }
-
-        if (best != Vector2.zero)
-        {
-            _movement.SetDirection(best);
-            _currentDirection = best;
-            AddRecentNode(node);
-            if (showDebugLogs) Debug.Log($"[SheepAI:{name}] 🧭 → {best}");
-        }
-    }
-
-    private void PanicBehavior()
-    {
-        if (!_movement.IsAtNode) return;
-
-        Node node = _movement.GetCurrentNode();
-        if (node == null || node.availableDirections.Count == 0) return;
-        if (wolfTransform == null) return;
-
-        // Guard: skip node yang sudah diproses
-        if (IsRecentNode(node)) return;
-
-        Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
-        Vector2 best = ChooseFlee(node, fleeDir);
-
-        if (best != Vector2.zero)
-        {
-            _movement.SetDirection(best);
-            _currentDirection = best;
-            AddRecentNode(node);
-            if (showDebugLogs) Debug.Log($"[SheepAI:{name}] 💨 → {best}");
-        }
-    }
-
-    // ─────────────────────────────────────────────
-    //  COROUTINES
-    // ─────────────────────────────────────────────
-
-    private IEnumerator CheckVelocityAfterStart()
-    {
-        yield return new WaitForFixedUpdate();
-        yield return new WaitForFixedUpdate();
-
-        float mag = _movement.Rb.linearVelocity.magnitude;
-
-        Debug.Log($"[SheepAI:{name}] 🔍 Velocity check setelah start — " +
-                  $"velocity: {_movement.Rb.linearVelocity}, " +
-                  $"magnitude: {mag:F2}, " +
-                  $"Direction: {_movement.Direction}, " +
-                  $"pos: {transform.position}");
-
-        if (mag < 0.01f)
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ Velocity = 0 setelah physics update!\n" +
-                           $"Cek kemungkinan:\n" +
-                           $"1. Rigidbody constraints Freeze Position\n" +
-                           $"2. Physics collider overlap wall\n" +
-                           $"3. Movement.enabled = false\n" +
-                           $"4. speed atau speedMultiplier = 0");
-        }
-        else
-        {
-            Debug.Log($"[SheepAI:{name}] ✅ Bergerak — velocity: {mag:F2}");
-        }
-
-        // ✅ Cek apakah posisi benar-benar berubah setelah 10 frame
-        Vector3 posBefore = transform.position;
-        for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
-        Vector3 posAfter = transform.position;
-        float moved = Vector3.Distance(posBefore, posAfter);
-
-        Debug.Log($"[SheepAI:{name}] 🔍 Posisi setelah 10 FixedUpdate — " +
-                  $"before: {posBefore}, after: {posAfter}, moved: {moved:F4}");
-
-        if (moved < 0.01f && _movement.Direction != Vector2.zero)
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ POSISI TIDAK BERUBAH meski Direction aktif!\n" +
-                           $"velocity: {_movement.Rb.linearVelocity}\n" +
-                           $"Ini hampir pasti karena physics collider menabrak wall.\n" +
-                           $"→ Kecilkan physics collider (non-trigger) di Inspector!\n" +
-                           $"→ Coba size: 0.5x0.5 atau lebih kecil");
-
-            // Cek overlap obstacle tepat di posisi sekarang
-            Collider2D[] overlaps = Physics2D.OverlapCircleAll(
-                transform.position, 0.45f, _movement.obstacleLayer);
-
-            if (overlaps.Length > 0)
-            {
-                Debug.LogError($"[SheepAI:{name}] ❌ KONFIRMASI: Collider overlap dengan {overlaps.Length} obstacle:");
-                foreach (Collider2D o in overlaps)
-                    Debug.LogError($"  → {o.name} di {o.transform.position}");
-            }
-            else
-            {
-                Debug.LogError($"[SheepAI:{name}] ❌ Tidak ada overlap terdeteksi tapi tetap stuck.\n" +
-                               $"Cek: apakah ada script lain yang set velocity=0 setiap frame?\n" +
-                               $"Cek: apakah Rigidbody constraints freeze position?");
-            }
-        }
-    }
-
-    private IEnumerator RetryDirectionAfterDelay()
-    {
-        Debug.Log($"[SheepAI:{name}] ⏳ Retry arah dalam 5 FixedUpdate...");
-
-        for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
-
-        Vector2[] dirs = { Vector2.up, Vector2.down, Vector2.left, Vector2.right };
-        var freeDirs = new List<Vector2>();
-        string dirLog = "";
-
-        foreach (Vector2 d in dirs)
-        {
-            bool blocked = _movement.Occupied(d);
-            dirLog += $"{DirectionName(d)}={blocked} | ";
-            if (!blocked) freeDirs.Add(d);
-        }
-
-        Debug.Log($"[SheepAI:{name}] Retry arah check — {dirLog}");
-
-        if (freeDirs.Count == 0)
-        {
-            Debug.LogError($"[SheepAI:{name}] ❌ Masih blocked setelah delay!\n" +
-                           $"Solusi: Pindahkan posisi spawn Sheep di Inspector ke tengah lorong.");
-            yield break;
+            _movement.SetDirection(newDir);
+            _currentDirection = newDir;
+            AddRecentNode(transform.position);
+            _lastNodePosition = transform.position;
+            _isFirstDecision = false;
+            if (showDebugLogs)
+                Debug.Log($"{name} chose: {newDir}");
         }
 
         _currentDirection = freeDirs[Random.Range(0, freeDirs.Count)];
@@ -391,36 +212,80 @@ public class SheepAI : MonoBehaviour
         StartCoroutine(CheckVelocityAfterStart());
     }
 
-    // ─────────────────────────────────────────────
-    //  DIRECTION SCORING
-    // ─────────────────────────────────────────────
-
-    private Vector2 ChooseBestToFood(Node node)
+    private void PanicBehavior()
     {
-        var forward = GetForwardDirs(node);
-        if (forward.Count == 0)
+        if (!IsAtNode() || wolfTransform == null) return;
+
+        float distFromLastNode = Vector3.Distance(transform.position, _lastNodePosition);
+        if (distFromLastNode < NewNodeThreshold) return;
+
+        Node node = GetCurrentNode();
+        if (node == null || node.availableDirections.Count == 0) return;
+
+        Vector2 fleeDir = ((Vector2)transform.position - (Vector2)wolfTransform.position).normalized;
+        Vector2 newDir = ChooseFleeDirection(node, fleeDir);
+        if (newDir != Vector2.zero)
         {
+            _movement.SetDirection(newDir);
+            _currentDirection = newDir;
+            _lastNodePosition = transform.position;
+            if (showDebugLogs)
+                Debug.Log($"{name} fleeing at node: {newDir}");
+        }
+    }
+
+    private void AddRecentNode(Vector3 pos)
+    {
+        _recentNodes.Enqueue(pos);
+        while (_recentNodes.Count > MaxRecentNodes)
+            _recentNodes.Dequeue();
+    }
+
+    private bool IsRecentNode(Vector3 pos)
+    {
+        foreach (Vector3 p in _recentNodes)
+            if (Vector3.Distance(pos, p) < 0.5f) return true;
+        return false;
+    }
+
+    private Vector2 ChooseBestDirectionToFood(Node node)
+    {
+        var forwardDirs = GetForwardDirections(node);
+        if (forwardDirs.Count == 0)
+        {
+            if (showDebugLogs) Debug.Log($"{name} DEAD END - turning around");
             _recentNodes.Clear();
             return node.availableDirections[Random.Range(0, node.availableDirections.Count)];
         }
 
-        Vector2 best = forward[0];
+        Vector2 bestDir = forwardDirs[0];
         float bestScore = float.MinValue;
 
-        foreach (Vector2 dir in forward)
+        foreach (Vector2 dir in forwardDirs)
         {
             float score = 0f;
+            Vector3 potentialPos = node.transform.position + (Vector3)(dir * 2f);
 
-            Node next = GetNodeInDir(node, dir);
-            if (next != null && IsRecentNode(next)) score -= 100f;
+            if (IsRecentNode(potentialPos))
+                score -= 100f;
 
             score += FoodBonus(dir, node.transform.position) * 10f;
 
             if (_targetFood != null)
             {
-                Vector2 toTarget = ((Vector2)_targetFood.position
-                                 - (Vector2)node.transform.position).normalized;
+                Vector2 toTarget = ((Vector2)_targetFood.position - (Vector2)node.transform.position).normalized;
                 score += Vector2.Dot(dir, toTarget) * 5f;
+            }
+
+            score -= WolfPenalty(dir) * 0.5f;
+
+            if (dir == _currentDirection)
+                score += 0.3f;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestDir = dir;
             }
 
             score -= WolfPenalty(dir) * 8f;
@@ -429,65 +294,55 @@ public class SheepAI : MonoBehaviour
 
             if (score > bestScore) { bestScore = score; best = dir; }
         }
-
-        return best;
+        return bestDir;
     }
 
-    private Vector2 ChooseFlee(Node node, Vector2 fleeDir)
+    private List<Vector2> GetForwardDirections(Node node)
     {
-        Vector2 best = node.availableDirections[0];
-        float bestScore = float.MinValue;
+        List<Vector2> forward = new List<Vector2>();
+        Vector2 backward = -_currentDirection;
+        foreach (Vector2 dir in node.availableDirections)
+            if (dir != backward)
+                forward.Add(dir);
+        return forward;
+    }
 
+    private Vector2 ChooseFleeDirection(Node node, Vector2 fleeDir)
+    {
+        Vector2 bestDir = node.availableDirections[0];
+        float bestScore = float.MinValue;
         foreach (Vector2 dir in node.availableDirections)
         {
             float score = Vector2.Dot(dir, fleeDir);
-            Node next = GetNodeInDir(node, dir);
-            if (next != null && IsRecentNode(next)) score -= 100f;
-            if (score > bestScore) { bestScore = score; best = dir; }
+            score -= WolfPenalty(dir) * 3.0f;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestDir = dir;
+            }
         }
-
-        return best;
+        return bestDir;
     }
 
-    // ─────────────────────────────────────────────
-    //  HELPERS
-    // ─────────────────────────────────────────────
-
-    private void SnapToGrid()
+    private float FoodBonus(Vector2 dir, Vector3 fromPos)
     {
-        float snap = 0.5f;
-        Vector3 pos = transform.position;
-        pos.x = Mathf.Round(pos.x / snap) * snap;
-        pos.y = Mathf.Round(pos.y / snap) * snap;
+        if (GameManager.Instance == null || GameManager.Instance.foods == null)
+            return 0f;
 
-        Vector2 snapped = new Vector2(pos.x, pos.y);
-
-        // Jika masih blocked, coba offset 0.5
-        if (IsPositionBlocked(snapped))
+        float bonus = 0f;
+        foreach (Transform food in GameManager.Instance.foods)
         {
-            Debug.LogWarning($"[SheepAI:{name}] ⚠️ Posisi snap awal blocked, coba offset...");
+            if (!food.gameObject.activeSelf) continue;
 
-            Vector2[] offsets = {
-                new Vector2( 0.5f,  0),
-                new Vector2(-0.5f,  0),
-                new Vector2( 0,  0.5f),
-                new Vector2( 0, -0.5f),
-                new Vector2( 0.5f,  0.5f),
-                new Vector2(-0.5f,  0.5f),
-                new Vector2( 0.5f, -0.5f),
-                new Vector2(-0.5f, -0.5f),
-            };
-
-            bool found = false;
-            foreach (Vector2 offset in offsets)
+            Vector2 toFood = ((Vector2)food.position - (Vector2)fromPos).normalized;
+            float alignment = Vector2.Dot(dir, toFood);
+            if (alignment > 0.5f) // cone 60�
             {
-                Vector2 candidate = snapped + offset;
-                if (!IsPositionBlocked(candidate))
+                float dist = Vector2.Distance(fromPos, food.position);
+                if (dist < foodSearchRadius)
                 {
-                    Debug.Log($"[SheepAI:{name}] ✅ Offset ditemukan: {offset} → {candidate}");
-                    snapped = candidate;
-                    found = true;
-                    break;
+                    float distBonus = 1f - (dist / foodSearchRadius);
+                    bonus += alignment * distBonus;
                 }
             }
 
@@ -565,33 +420,12 @@ public class SheepAI : MonoBehaviour
     private float WolfPenalty(Vector2 dir)
     {
         if (wolfTransform == null) return 0f;
-        Vector2 toWolf = ((Vector2)wolfTransform.position
-                       - (Vector2)transform.position).normalized;
-        return Mathf.Max(0f, Vector2.Dot(dir, toWolf));
+        Vector2 toWolf = ((Vector2)wolfTransform.position - (Vector2)transform.position).normalized;
+        float dot = Vector2.Dot(dir, toWolf);
+        return dot > 0 ? dot : 0f;
     }
 
-    private List<Vector2> GetForwardDirs(Node node)
-    {
-        var result = new List<Vector2>();
-        Vector2 backward = -_currentDirection;
-        foreach (Vector2 d in node.availableDirections)
-            if (d != backward) result.Add(d);
-        return result;
-    }
-
-    private Node GetNodeInDir(Node from, Vector2 dir, float dist = 2f)
-    {
-        Vector3 pos = from.transform.position + (Vector3)(dir * dist);
-        Collider2D[] hits = Physics2D.OverlapCircleAll(pos, 0.5f);
-        foreach (var h in hits)
-        {
-            Node n = h.GetComponent<Node>();
-            if (n != null) return n;
-        }
-        return null;
-    }
-
-    private Vector2 GetBestCardinal(Vector2 target)
+    private Vector2 GetBestCardinalDirection(Vector2 target)
     {
         Vector2[] cardinals = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
         Vector2 best = cardinals[0];
@@ -599,71 +433,49 @@ public class SheepAI : MonoBehaviour
         foreach (Vector2 d in cardinals)
         {
             float dot = Vector2.Dot(d, target);
-            if (dot > bestDot) { bestDot = dot; best = d; }
+            if (dot > bestDot)
+            {
+                bestDot = dot;
+                best = d;
+            }
         }
         return best;
     }
 
-    private Vector2 GetAlternativeFlee(Vector2 fleeDir)
+    private Transform FindNearestFood()
     {
-        Vector2[] dirs = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
-        Vector2 best = _currentDirection;
-        float bestScore = float.MinValue;
-        foreach (Vector2 d in dirs)
+        if (GameManager.Instance == null || GameManager.Instance.foods == null)
+            return null;
+
+        Transform nearest = null;
+        float minDist = float.MaxValue;
+        foreach (Transform food in GameManager.Instance.foods)
         {
-            if (_movement.Occupied(d)) continue;
-            float score = Vector2.Dot(d, fleeDir);
-            if (score > bestScore) { bestScore = score; best = d; }
+            if (!food.gameObject.activeSelf) continue;
+            if (food.gameObject.layer != _foodLayer) continue;
+
+            float dist = Vector2.Distance(transform.position, food.position);
+            if (dist < minDist && dist < foodSearchRadius)
+            {
+                minDist = dist;
+                nearest = food;
+            }
         }
-        return best;
+        return nearest;
     }
 
-    private void AddRecentNode(Node node)
+    private bool IsAtNode()
     {
         _recentNodes.Enqueue(node);
         while (_recentNodes.Count > MAX_RECENT) _recentNodes.Dequeue();
     }
 
-    private bool IsRecentNode(Node node)
+    private Node GetCurrentNode()
     {
-        foreach (Node n in _recentNodes)
-            if (n == node) return true;
-        return false;
-    }
-
-    private string DirectionName(Vector2 d)
-    {
-        if (d == Vector2.up) return "↑";
-        if (d == Vector2.down) return "↓";
-        if (d == Vector2.left) return "←";
-        if (d == Vector2.right) return "→";
-        return d.ToString();
-    }
-
-    private void DebugPositionLog()
-    {
-        _debugTimer += Time.deltaTime;
-        if (_debugTimer < 2f) return;
-        _debugTimer = 0f;
-
-        Vector3 pos = transform.position;
-        float moved = Vector3.Distance(pos, _lastPos);
-
-        Debug.Log($"[SheepAI:{name}] 📍 Pos: {pos} | " +
-                  $"Moved: {moved:F3} | " +
-                  $"Velocity: {_movement.Rb.linearVelocity} | " +
-                  $"Direction: {_movement.Direction} | " +
-                  $"State: {_state} | " +
-                  $"IsAtNode: {_movement.IsAtNode}");
-
-        if (moved < 0.01f && _movement.Direction != Vector2.zero)
-        {
-            Debug.LogWarning($"[SheepAI:{name}] ⚠️ Posisi tidak berubah! " +
-                             $"velocity: {_movement.Rb.linearVelocity.magnitude:F2} — " +
-                             $"PHYSICS COLLIDER TERLALU BESAR, kecilkan di Inspector.");
-        }
-
-        _lastPos = pos;
+        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 0.4f, nodeLayer);
+        if (hits.Length > 0)
+            return hits[0].GetComponent<Node>();
+        return null;
     }
 
     private void OnDrawGizmosSelected()
@@ -671,13 +483,27 @@ public class SheepAI : MonoBehaviour
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRange);
 
-        if (_targetFood != null && _state == State.Eating)
+        if (_recentNodes != null)
+        {
+            foreach (Vector3 pos in _recentNodes)
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(pos, 0.3f);
+            }
+        }
+
+        if (_targetFood != null && _currentState == SheepState.Eating)
         {
             Gizmos.color = Color.green;
             Gizmos.DrawLine(transform.position, _targetFood.position);
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireSphere(_targetFood.position, 0.5f);
         }
 
-        if (_state == State.Panicking && wolfTransform != null)
+        Gizmos.color = Color.blue;
+        Gizmos.DrawRay(transform.position, _currentDirection * 1.5f);
+
+        if (wolfTransform != null && _currentState == SheepState.Panicking)
         {
             Gizmos.color = Color.red;
             Vector2 flee = ((Vector2)transform.position

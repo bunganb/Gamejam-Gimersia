@@ -16,7 +16,8 @@ public class LevelGameManager : MonoBehaviour
 
     private void ShowWinScreen()
     {
-        // Cari komponen LoadMainMenu di scene dengan API terbaru
+        // Di sini Anda bisa menampilkan UI kemenangan
+        // Contoh sederhana: langsung kembali ke main menu dengan membuka panel levels
         LoadMainMenu loadMenu = FindFirstObjectByType<LoadMainMenu>();
         if (loadMenu != null)
         {
