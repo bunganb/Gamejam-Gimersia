@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -12,9 +13,7 @@ public class GameManager : MonoBehaviour
 
     public Wolf wolf;
     public Transform foods;          // Parent dari semua makanan
-
-    [Header("Visual Effects")]
-    public Volume globalVolume;
+    public Volume globalVolume;      // Untuk efek vignette
 
     [Header("UI References")]
     public GameObject gameOverUI;
@@ -23,7 +22,7 @@ public class GameManager : MonoBehaviour
 
     public int Score { get; private set; }
     private bool _gameEnded = false;
-    private int _sheepMultiplier = 1; // bisa digunakan untuk power-up nanti
+    private int _sheepMultiplier = 1;
 
     // Power-up state
     private Coroutine _openMapCoroutine;
@@ -45,6 +44,7 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        // Simpan nilai awal vignette (akan dicari ulang nanti)
         if (globalVolume != null && globalVolume.profile.TryGet(out Vignette vignette))
         {
             _originalVignetteIntensity = vignette.intensity.value;
@@ -53,7 +53,101 @@ public class GameManager : MonoBehaviour
 
         if (NextButton != null)
             NextButton.onClick.AddListener(OnNextButtonClicked);
+
+        // Cari referensi awal (untuk scene pertama)
+        FindUIReferences();
+        FindGameReferences();
     }
+
+    private void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        // Perbarui referensi setiap kali scene berubah
+        FindUIReferences();
+        FindGameReferences();
+
+        // Jika ini adalah scene game, reset game state
+        if (scene.name.Contains("Level") || scene.buildIndex >= 1)
+        {
+            NewGame();
+        }
+    }
+
+    // ==================== PENCARIAN REFERENSI UI ====================
+
+    private void FindUIReferences()
+    {
+        // Cari semua GameObject di scene (termasuk yang tidak aktif)
+        GameObject[] allObjects = FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+        if (gameOverUI == null)
+        {
+            GameObject found = Array.Find(allObjects, go => go.name == "GameOver Ui");
+            if (found != null) gameOverUI = found;
+        }
+        if (winUI == null)
+        {
+            GameObject found = Array.Find(allObjects, go => go.name == "WinUI");
+            if (found != null) winUI = found;
+        }
+        if (NextButton == null)
+        {
+            GameObject found = Array.Find(allObjects, go => go.name == "NextButton");
+            if (found != null) NextButton = found.GetComponent<Button>();
+        }
+
+        if (gameOverUI == null && winUI == null && NextButton == null)
+            Debug.Log("UI references not found in this scene.");
+        else
+            Debug.Log("UI references updated.");
+    }
+
+    // ==================== PENCARIAN REFERENSI GAME OBJECT ====================
+
+    private void FindGameReferences()
+    {
+        // Cari ulang foods parent
+        if (foods == null)
+        {
+            GameObject foodsObj = GameObject.Find("Foods");
+            if (foodsObj != null) foods = foodsObj.transform;
+        }
+
+        // Cari ulang wolf
+        if (wolf == null)
+        {
+            wolf = FindFirstObjectByType<Wolf>();
+        }
+
+        // Cari ulang global volume
+        if (globalVolume == null)
+        {
+            globalVolume = FindFirstObjectByType<Volume>();
+            if (globalVolume != null && globalVolume.profile.TryGet(out Vignette vignette))
+            {
+                _originalVignetteIntensity = vignette.intensity.value;
+                _originalVignetteSmoothness = vignette.smoothness.value;
+            }
+        }
+
+        if (foods == null)
+            Debug.LogWarning("Foods parent not found in scene!");
+        if (wolf == null)
+            Debug.LogWarning("Wolf not found in scene!");
+        if (globalVolume == null)
+            Debug.LogWarning("Global Volume not found in scene!");
+    }
+
+    // ==================== GAME FLOW ====================
 
     private void Start()
     {
@@ -73,6 +167,7 @@ public class GameManager : MonoBehaviour
 
     private void NewRound()
     {
+        if (foods == null) return;
         foreach (Transform food in foods)
             food.gameObject.SetActive(true);
         ResetState();
@@ -82,7 +177,7 @@ public class GameManager : MonoBehaviour
     {
         Sheep[] allSheep = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
         foreach (Sheep sheep in allSheep)
-            sheep.ResetState(); // kita tambahkan method ResetState di Sheep nanti
+            sheep.ResetState();
 
         if (wolf != null)
             wolf.gameObject.SetActive(true);
@@ -112,6 +207,7 @@ public class GameManager : MonoBehaviour
 
     private bool HasRemainingFoods()
     {
+        if (foods == null) return false;
         foreach (Transform food in foods)
             if (food.gameObject.activeSelf) return true;
         return false;
@@ -120,7 +216,6 @@ public class GameManager : MonoBehaviour
     public void SheepEaten(Sheep sheep)
     {
         Score += sheep.points * _sheepMultiplier;
-        // Cek kemenangan setelah domba dimakan, tidak pakai Invoke
         CheckWinCondition();
     }
 
@@ -147,6 +242,8 @@ public class GameManager : MonoBehaviour
         AudioManager.Instance?.PlaySFX("Win");
         Debug.Log("<color=green>PLAYER WINS! All sheep have been eaten!</color>");
     }
+
+    // ==================== LEVEL UNLOCK & MAIN MENU ====================
 
     private void OnNextButtonClicked()
     {
@@ -181,7 +278,8 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // Power-ups (sama seperti sebelumnya, hanya perbaikan nama variabel)
+    // ==================== POWER-UPS ====================
+
     public void ActivateOpenMap(float duration, float targetIntensity, float targetSmoothness)
     {
         if (_openMapCoroutine != null) StopCoroutine(_openMapCoroutine);
@@ -193,14 +291,20 @@ public class GameManager : MonoBehaviour
         if (globalVolume == null || !globalVolume.profile.TryGet(out Vignette vignette))
             yield break;
 
+        // Simpan nilai asli jika belum
+        _originalVignetteIntensity = vignette.intensity.value;
+        _originalVignetteSmoothness = vignette.smoothness.value;
+
         float stepSize = 0.1f;
         float stepDelay = 0.05f;
 
+        // Turunkan intensitas
         while (vignette.intensity.value > targetIntensity)
         {
             vignette.intensity.value = Mathf.Max(vignette.intensity.value - stepSize, targetIntensity);
             yield return new WaitForSeconds(stepDelay);
         }
+        // Turunkan smoothness
         while (vignette.smoothness.value > targetSmoothness)
         {
             vignette.smoothness.value = Mathf.Max(vignette.smoothness.value - stepSize, targetSmoothness);
@@ -212,6 +316,7 @@ public class GameManager : MonoBehaviour
 
         yield return new WaitForSeconds(duration);
 
+        // Kembalikan ke asli
         while (vignette.intensity.value < _originalVignetteIntensity)
         {
             vignette.intensity.value = Mathf.Min(vignette.intensity.value + stepSize, _originalVignetteIntensity);
@@ -237,7 +342,7 @@ public class GameManager : MonoBehaviour
     private IEnumerator HowlOfFearEffect(float duration, float speedMultiplier)
     {
         Sheep[] allSheep = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
-        var originalSpeeds = new System.Collections.Generic.Dictionary<Sheep, float>();
+        var originalSpeeds = new Dictionary<Sheep, float>();
 
         foreach (Sheep sheep in allSheep)
         {
