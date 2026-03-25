@@ -19,6 +19,12 @@ public class AudioManager : MonoBehaviour
     [Range(0f, 1f)] public float bgmVolume = 1f;
     [Range(0f, 1f)] public float sfxVolume = 1f;
 
+    [Header("Ducking Settings")]
+    [Tooltip("Nama-nama SFX yang akan menurunkan volume BGM sementara (ducking)")]
+    public List<string> importantSFXNames = new List<string>() { "Win", "Lose" };
+    [Range(0f, 1f)] public float duckedVolume = 0.1f; // Volume BGM saat ducking
+    public float duckFadeDuration = 0.5f; // Durasi fade in/out ducking
+
     [System.Serializable]
     public class NamedAudioClip
     {
@@ -29,18 +35,12 @@ public class AudioManager : MonoBehaviour
     private Dictionary<string, AudioClip> _bgmDict = new();
     private Dictionary<string, AudioClip> _sfxDict = new();
 
-    // Nama BGM yang sedang aktif (untuk cegah replay lagu yang sama)
     private string _currentBGMName = "";
-
-    // Simpan referensi coroutine aktif agar bisa di-stop sebelum mulai yang baru
     private Coroutine _bgmCoroutine;
+    private Coroutine _duckCoroutine;
+    private float _originalBGMVolume = 1f;
 
-    // Properti target volume BGM setelah fade selesai
     private float TargetBGMVolume => masterVolume * bgmVolume;
-
-    // ─────────────────────────────────────────────
-    //  LIFECYCLE
-    // ─────────────────────────────────────────────
 
     private void Awake()
     {
@@ -86,9 +86,6 @@ public class AudioManager : MonoBehaviour
     //  BGM
     // ─────────────────────────────────────────────
 
-    /// <summary>
-    /// Memainkan BGM dengan nama tertentu. Jika sudah playing, tidak diulang.
-    /// </summary>
     public void PlayBGM(string name, float fadeDuration = 1.5f)
     {
         if (!_bgmDict.TryGetValue(name, out AudioClip clip))
@@ -97,12 +94,10 @@ public class AudioManager : MonoBehaviour
             return;
         }
 
-        // Hindari restart jika lagu yang sama sedang main
         if (_currentBGMName == name && bgmSource.isPlaying) return;
 
         _currentBGMName = name;
 
-        // Hentikan coroutine fade yang mungkin masih berjalan
         StopBGMCoroutine();
 
         if (bgmSource.isPlaying)
@@ -111,9 +106,6 @@ public class AudioManager : MonoBehaviour
             _bgmCoroutine = StartCoroutine(FadeInBGM(clip, fadeDuration));
     }
 
-    /// <summary>
-    /// Menghentikan BGM dengan fade out.
-    /// </summary>
     public void StopBGM(float fadeDuration = 1.5f)
     {
         StopBGMCoroutine();
@@ -121,23 +113,13 @@ public class AudioManager : MonoBehaviour
         _bgmCoroutine = StartCoroutine(FadeOutBGM(fadeDuration, stopAfterFade: true));
     }
 
-    /// <summary>
-    /// Pause BGM (berguna saat pause menu).
-    /// </summary>
     public void PauseBGM() => bgmSource.Pause();
-
-    /// <summary>
-    /// Resume BGM setelah di-pause.
-    /// </summary>
     public void ResumeBGM() => bgmSource.UnPause();
 
     // ─────────────────────────────────────────────
     //  SFX
     // ─────────────────────────────────────────────
 
-    /// <summary>
-    /// Memainkan SFX sekali. Gunakan stopBGM = true untuk menghentikan BGM (contoh: scene end).
-    /// </summary>
     public void PlaySFX(string name, bool stopBGM = false)
     {
         if (!_sfxDict.TryGetValue(name, out AudioClip clip))
@@ -153,8 +135,42 @@ public class AudioManager : MonoBehaviour
         if (stopBGM)
         {
             StopBGMCoroutine();
-            _bgmCoroutine = StartCoroutine(FadeOutBGM(fadeDuration: 1.5f, stopAfterFade: true));
+            _bgmCoroutine = StartCoroutine(FadeOutBGM(1.5f, stopAfterFade: true));
         }
+        else if (importantSFXNames.Contains(name))
+        {
+            // Lakukan ducking untuk SFX penting, dengan durasi clip
+            StartDucking(clip.length);
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  DUCKING
+    // ─────────────────────────────────────────────
+
+    private void StartDucking(float duration)
+    {
+        if (_duckCoroutine != null)
+            StopCoroutine(_duckCoroutine);
+
+        _duckCoroutine = StartCoroutine(DuckBGM(duration));
+    }
+
+    private IEnumerator DuckBGM(float duration)
+    {
+        // Simpan volume asli jika belum disimpan
+        _originalBGMVolume = bgmSource.volume;
+
+        // Fade down ke duckedVolume
+        yield return FadeVolume(bgmSource, _originalBGMVolume, duckedVolume, duckFadeDuration);
+
+        // Tunggu sampai SFX selesai (durasi clip)
+        yield return new WaitForSecondsRealtime(duration);
+
+        // Fade up kembali ke volume asli
+        yield return FadeVolume(bgmSource, duckedVolume, _originalBGMVolume, duckFadeDuration);
+
+        _duckCoroutine = null;
     }
 
     // ─────────────────────────────────────────────
@@ -181,8 +197,7 @@ public class AudioManager : MonoBehaviour
 
     private void ApplyVolumes()
     {
-        // Hanya update volume jika tidak sedang dalam proses fade
-        if (_bgmCoroutine == null)
+        if (_bgmCoroutine == null && _duckCoroutine == null)
             bgmSource.volume = TargetBGMVolume;
     }
 
@@ -209,7 +224,7 @@ public class AudioManager : MonoBehaviour
         if (stopAfterFade)
         {
             bgmSource.Stop();
-            bgmSource.volume = TargetBGMVolume; // Reset untuk play berikutnya
+            bgmSource.volume = TargetBGMVolume;
         }
 
         _bgmCoroutine = null;
@@ -217,23 +232,17 @@ public class AudioManager : MonoBehaviour
 
     private IEnumerator SwitchBGMWithFade(AudioClip newClip, float fadeDuration)
     {
-        // Fade out lagu lama
         float startVol = bgmSource.volume;
         yield return FadeVolume(bgmSource, startVol, 0f, fadeDuration);
 
-        // Ganti clip dan play
         bgmSource.clip = newClip;
         bgmSource.loop = true;
         bgmSource.Play();
 
-        // Fade in lagu baru ke target volume
         yield return FadeVolume(bgmSource, 0f, TargetBGMVolume, fadeDuration);
         _bgmCoroutine = null;
     }
 
-    /// <summary>
-    /// Utilitas fade volume reusable — menghindari duplikasi kode di setiap coroutine.
-    /// </summary>
     private IEnumerator FadeVolume(AudioSource source, float from, float to, float duration)
     {
         if (duration <= 0f)
@@ -245,7 +254,7 @@ public class AudioManager : MonoBehaviour
         float elapsed = 0f;
         while (elapsed < duration)
         {
-            elapsed += Time.unscaledDeltaTime; // unscaledDeltaTime agar bekerja saat Time.timeScale = 0 (pause)
+            elapsed += Time.unscaledDeltaTime;
             source.volume = Mathf.Lerp(from, to, elapsed / duration);
             yield return null;
         }
