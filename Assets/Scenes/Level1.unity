@@ -23171,7 +23171,7 @@ GameObject:
   - component: {fileID: 1674872119}
   - component: {fileID: 1674872118}
   m_Layer: 5
-  m_Name: WinUi
+  m_Name: WinUI
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
