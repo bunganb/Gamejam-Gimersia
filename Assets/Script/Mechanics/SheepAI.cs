@@ -42,7 +42,12 @@ public class SheepAI : MonoBehaviour
     private bool _isFirstDecision = true;
 
     private Queue<Vector3> _recentNodes = new Queue<Vector3>();
-    private const int MaxRecentNodes = 3;
+    private const int MaxRecentNodes = 5; // tingkatkan menjadi 5
+
+    // Deteksi stuck
+    private float _stuckTimer = 0f;
+    private const float StuckThreshold = 2f;
+    private Vector3 _lastCheckPosition;
 
     private void Awake()
     {
@@ -56,18 +61,14 @@ public class SheepAI : MonoBehaviour
 
     private void Start()
     {
-        // Cari wolf berdasarkan layer
         if (wolfTransform == null)
         {
-            // Gunakan FindObjectsByType untuk performa (Unity 2022+)
-            // Jika tidak tersedia, fallback ke FindObjectsOfType
             Wolf[] wolves = FindObjectsByType<Wolf>(FindObjectsSortMode.None);
             if (wolves.Length > 0) wolfTransform = wolves[0].transform;
         }
 
         _movement.speedMultiplier = normalSpeed;
 
-        // Inisialisasi arah acak
         Vector2[] directions = { Vector2.up, Vector2.down, Vector2.left, Vector2.right };
         _currentDirection = directions[Random.Range(0, directions.Length)];
         _movement.SetDirection(_currentDirection);
@@ -75,7 +76,7 @@ public class SheepAI : MonoBehaviour
         if (showDebugLogs)
             Debug.Log($"{name} Initial direction: {_currentDirection}");
 
-        _lastNodePosition = transform.position + Vector3.one * 999f; // offset besar
+        _lastNodePosition = transform.position + Vector3.one * 999f;
         _targetFood = FindNearestFood();
 
         if (showDebugLogs && _targetFood != null)
@@ -85,6 +86,27 @@ public class SheepAI : MonoBehaviour
     private void Update()
     {
         CheckForWolf();
+
+        // Deteksi stuck (posisi tidak berubah dalam waktu lama)
+        if (Vector3.Distance(transform.position, _lastCheckPosition) < 0.05f)
+            _stuckTimer += Time.deltaTime;
+        else
+            _stuckTimer = 0f;
+        _lastCheckPosition = transform.position;
+
+        if (_stuckTimer > StuckThreshold && _currentState == SheepState.Eating)
+        {
+            if (showDebugLogs) Debug.Log($"{name} STUCK! Forcing random direction.");
+            Node node = GetCurrentNode();
+            if (node != null && node.availableDirections.Count > 0)
+            {
+                Vector2 forcedDir = node.availableDirections[Random.Range(0, node.availableDirections.Count)];
+                _movement.SetDirection(forcedDir);
+                _currentDirection = forcedDir;
+                _recentNodes.Clear(); // reset recent nodes
+                _stuckTimer = 0f;
+            }
+        }
 
         switch (_currentState)
         {
@@ -141,7 +163,6 @@ public class SheepAI : MonoBehaviour
             }
             else
             {
-                // Cari alternatif yang tidak terhalang
                 Vector2[] alts = { Vector2.up, Vector2.right, Vector2.down, Vector2.left };
                 float bestScore = float.MinValue;
                 Vector2 bestAlt = _currentDirection;
@@ -174,7 +195,6 @@ public class SheepAI : MonoBehaviour
 
     private void EatingBehavior()
     {
-        // Update target makanan secara periodik
         _foodSearchTimer -= Time.deltaTime;
         if (_foodSearchTimer <= 0f || _targetFood == null || !_targetFood.gameObject.activeSelf)
         {
@@ -182,7 +202,6 @@ public class SheepAI : MonoBehaviour
             _foodSearchTimer = FoodSearchInterval;
         }
 
-        // Hanya ambil keputusan di node
         if (!IsAtNode()) return;
 
         float distFromLastNode = Vector3.Distance(transform.position, _lastNodePosition);
@@ -246,8 +265,34 @@ public class SheepAI : MonoBehaviour
         if (forwardDirs.Count == 0)
         {
             if (showDebugLogs) Debug.Log($"{name} DEAD END - turning around");
-            _recentNodes.Clear();
-            return node.availableDirections[Random.Range(0, node.availableDirections.Count)];
+            AddRecentNode(transform.position);
+            return node.availableDirections[0];
+        }
+
+        // Jika ada makanan yang sangat dekat, langsung pilih arah terbaik menuju makanan itu
+        if (_targetFood != null)
+        {
+            float distToFood = Vector2.Distance(transform.position, _targetFood.position);
+            if (distToFood < 3f)
+            {
+                Vector2 toFood = ((Vector2)_targetFood.position - (Vector2)node.transform.position).normalized;
+                Vector2 bestDirToFood = forwardDirs[0];
+                float bestDot = -1f;
+                foreach (Vector2 dir in forwardDirs)
+                {
+                    float dot = Vector2.Dot(dir, toFood);
+                    if (dot > bestDot)
+                    {
+                        bestDot = dot;
+                        bestDirToFood = dir;
+                    }
+                }
+                if (bestDot > 0.3f) // jika ada arah yang cukup searah
+                {
+                    if (showDebugLogs) Debug.Log($"{name} food nearby! forcing direction {bestDirToFood}");
+                    return bestDirToFood;
+                }
+            }
         }
 
         Vector2 bestDir = forwardDirs[0];
@@ -261,12 +306,18 @@ public class SheepAI : MonoBehaviour
             if (IsRecentNode(potentialPos))
                 score -= 100f;
 
-            score += FoodBonus(dir, node.transform.position) * 10f;
+            // Food bonus: ambil nilai tertinggi dari semua makanan di arah ini
+            float foodBonus = GetBestFoodBonus(dir, node.transform.position);
+            score += foodBonus * 10f;
 
             if (_targetFood != null)
             {
                 Vector2 toTarget = ((Vector2)_targetFood.position - (Vector2)node.transform.position).normalized;
-                score += Vector2.Dot(dir, toTarget) * 5f;
+                float alignment = Vector2.Dot(dir, toTarget);
+                // Bobot alignment diperbesar jika makanan dekat
+                float distToFood = Vector2.Distance(transform.position, _targetFood.position);
+                float targetWeight = (distToFood < 4f) ? 15f : 8f;
+                score += alignment * targetWeight;
             }
 
             score -= WolfPenalty(dir) * 0.5f;
@@ -280,7 +331,41 @@ public class SheepAI : MonoBehaviour
                 bestDir = dir;
             }
         }
+
+        // Jika semua arah mendapat skor sangat rendah, pilih acak untuk keluar loop
+        if (bestScore < -50f && forwardDirs.Count > 1)
+        {
+            if (showDebugLogs) Debug.Log($"{name} best score too low ({bestScore}), picking random direction.");
+            bestDir = forwardDirs[Random.Range(0, forwardDirs.Count)];
+        }
+
         return bestDir;
+    }
+
+    private float GetBestFoodBonus(Vector2 dir, Vector3 fromPos)
+    {
+        if (GameManager.Instance == null || GameManager.Instance.foods == null)
+            return 0f;
+
+        float best = 0f;
+        foreach (Transform food in GameManager.Instance.foods)
+        {
+            if (!food.gameObject.activeSelf) continue;
+
+            Vector2 toFood = ((Vector2)food.position - (Vector2)fromPos).normalized;
+            float alignment = Vector2.Dot(dir, toFood);
+            if (alignment > 0.5f) // cone 60°
+            {
+                float dist = Vector2.Distance(fromPos, food.position);
+                if (dist < foodSearchRadius)
+                {
+                    float distBonus = 1f - (dist / foodSearchRadius);
+                    float value = alignment * distBonus;
+                    if (value > best) best = value;
+                }
+            }
+        }
+        return best;
     }
 
     private List<Vector2> GetForwardDirections(Node node)
@@ -322,7 +407,7 @@ public class SheepAI : MonoBehaviour
 
             Vector2 toFood = ((Vector2)food.position - (Vector2)fromPos).normalized;
             float alignment = Vector2.Dot(dir, toFood);
-            if (alignment > 0.5f) // cone 60°
+            if (alignment > 0.5f)
             {
                 float dist = Vector2.Distance(fromPos, food.position);
                 if (dist < foodSearchRadius)

@@ -1276,6 +1276,10 @@ MonoBehaviour:
   OnDirectionChanged:
     m_PersistentCalls:
       m_Calls: []
+  nodeLayer:
+    serializedVersion: 2
+    m_Bits: 1024
+  nodeCheckRadius: 0.3
 --- !u!50 &586637182
 Rigidbody2D:
   serializedVersion: 5
@@ -22446,6 +22450,10 @@ MonoBehaviour:
   OnDirectionChanged:
     m_PersistentCalls:
       m_Calls: []
+  nodeLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  nodeCheckRadius: 0.3
 --- !u!114 &1193549575
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -26962,6 +26970,10 @@ MonoBehaviour:
   OnDirectionChanged:
     m_PersistentCalls:
       m_Calls: []
+  nodeLayer:
+    serializedVersion: 2
+    m_Bits: 1024
+  nodeCheckRadius: 0.3
 --- !u!4 &5745898334795092575
 Transform:
   m_ObjectHideFlags: 0
@@ -27099,7 +27111,7 @@ MonoBehaviour:
   nodeLayer:
     serializedVersion: 2
     m_Bits: 1024
-  showDebugLogs: 1
+  showDebugLogs: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
