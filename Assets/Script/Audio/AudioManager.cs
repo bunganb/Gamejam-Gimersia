@@ -22,7 +22,7 @@ public class AudioManager : MonoBehaviour
     [Header("Ducking Settings")]
     [Tooltip("Nama-nama SFX yang akan menurunkan volume BGM sementara (ducking)")]
     public List<string> importantSFXNames = new List<string>() { "Win", "Lose" };
-    [Range(0f, 1f)] public float duckedVolume = 0.1f; // Volume BGM saat ducking
+    [Range(0f, 1f)] public float duckedVolume = 0.01f; // Volume BGM saat ducking
     public float duckFadeDuration = 0.5f; // Durasi fade in/out ducking
 
     [System.Serializable]

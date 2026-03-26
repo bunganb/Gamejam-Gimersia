@@ -3311,6 +3311,11 @@ MonoBehaviour:
   masterVolume: 1
   bgmVolume: 1
   sfxVolume: 1
+  importantSFXNames:
+  - Win
+  - Lose
+  duckedVolume: 0.01
+  duckFadeDuration: 0.5
 --- !u!4 &1227357043
 Transform:
   m_ObjectHideFlags: 0
